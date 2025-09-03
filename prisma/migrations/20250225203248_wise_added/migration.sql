@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE `ConnectedWallet` MODIFY `provider` ENUM('PAYPAL', 'STRIPE', 'PAYONEER', 'ZELLE', 'CASHAPP', 'VENMO', 'APPLEPAY', 'GOOGLEPAY', 'WISE') NOT NULL;
+
+-- AlterTable
+ALTER TABLE `transactions` MODIFY `provider` ENUM('PAYPAL', 'STRIPE', 'PAYONEER', 'ZELLE', 'CASHAPP', 'VENMO', 'APPLEPAY', 'GOOGLEPAY', 'WISE') NOT NULL;
