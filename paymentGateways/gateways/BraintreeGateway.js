@@ -6,11 +6,13 @@ class BraintreeGateway extends MethodBasedPayment {
   constructor() {
     super();
     
-    this.isProduction = process.env.NODE_ENV === 'production';
+    // Select Braintree environment via dedicated var to avoid NODE_ENV mismatch
+    const btEnv = (process.env.BT_ENVIRONMENT || process.env.BRAINTREE_ENVIRONMENT || 'sandbox').toLowerCase();
+    const environment = btEnv === 'production' ? braintree.Environment.Production : braintree.Environment.Sandbox;
     
     // Initialize Braintree gateway (use BraintreeGateway constructor)
     this.gateway = new braintree.BraintreeGateway({
-      environment: this.isProduction ? braintree.Environment.Production : braintree.Environment.Sandbox,
+      environment,
       merchantId: process.env.BT_MERCHANT_ID,
       publicKey: process.env.BT_PUBLIC_KEY,
       privateKey: process.env.BT_PRIVATE_KEY
