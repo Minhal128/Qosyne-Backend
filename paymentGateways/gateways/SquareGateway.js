@@ -6,9 +6,11 @@ class SquareGateway extends MethodBasedPayment {
   constructor() {
     super();
 
-    this.isProduction = process.env.NODE_ENV === 'production';
+    // Select Square environment via dedicated var to avoid NODE_ENV mismatch
+    const sqEnv = (process.env.SQUARE_ENVIRONMENT || 'sandbox').toLowerCase();
+    const isProd = sqEnv === 'production';
 
-    this.baseUrl = this.isProduction
+    this.baseUrl = isProd
       ? 'https://connect.squareup.com/v2'
       : 'https://connect.squareupsandbox.com/v2';
 
