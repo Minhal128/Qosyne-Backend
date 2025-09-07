@@ -1,0 +1,341 @@
+{
+  "info": {
+    "name": "Qosyne Backend - Wallet Integration (Wise + Core)",
+    "_postman_id": "a5f2c7a7-8f1b-4df6-9d51-2b6b3f5e9c21",
+    "description": "Auth, Wise (real OAuth + mock), Wallets, Transfers, QR. Uses your provided env.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "https://qosynebackend.vercel.app" },
+    { "key": "email", "value": "test1@example.com" },
+    { "key": "password", "value": "Password123!" },
+    { "key": "token", "value": "" },
+    { "key": "wiseWalletId", "value": "" },
+    { "key": "secondWiseWalletId", "value": "" },
+    { "key": "lastTransactionId", "value": "" },
+    { "key": "qrId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /api/health",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/health", "host": ["{{baseUrl}}"], "path": ["api", "health"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "POST /api/auth/register",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"name\":\"Test User\",\"email\":\"{{email}}\",\"password\":\"{{password}}\"}" },
+            "url": { "raw": "{{baseUrl}}/api/auth/register", "host": ["{{baseUrl}}"], "path": ["api","auth","register"] }
+          }
+        },
+        {
+          "name": "POST /api/auth/login (sets token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "try {",
+                  "  const json = pm.response.json();",
+                  "  const token = json.token || (json.data && (json.data.token || json.data.accessToken));",
+                  "  if (token) { pm.collectionVariables.set('token', token); }",
+                  "} catch (e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\"email\":\"{{email}}\",\"password\":\"{{password}}\"}" },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api","auth","login"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Wise (REAL - OAuth)",
+      "item": [
+        {
+          "name": "GET OAuth URL (open in browser)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/wallet-integration/oauth/url?provider=WISE",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","wallet-integration","oauth","url"],
+              "query": [{ "key": "provider", "value": "WISE" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "try {",
+                  "  const json = pm.response.json();",
+                  "  const url = json.url || (json.data && json.data.url);",
+                  "  if (url) pm.test('OAuth URL returned', () => pm.expect(url).to.be.a('string'));",
+                  "} catch(e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Wallets (after OAuth callback)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/wallet-integration/wallets", "host": ["{{baseUrl}}"], "path": ["api","wallet-integration","wallets"] }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "try {",
+                  "  const wallets = pm.response.json().data || pm.response.json();",
+                  "  if (Array.isArray(wallets)) {",
+                  "    const wise = wallets.find(w => (w.provider||'').toUpperCase()==='WISE');",
+                  "    if (wise && wise.walletId) pm.collectionVariables.set('wiseWalletId', wise.walletId);",
+                  "  }",
+                  "} catch(e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Wise Balance",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/wallet-integration/wallets/{{wiseWalletId}}/balance",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","wallet-integration","wallets","{{wiseWalletId}}","balance"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Wise (MOCK - for quick testing)",
+      "item": [
+        {
+          "name": "POST Connect Wise (mock: true) -> sets wiseWalletId",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "try {",
+                  "  const res = pm.response.json();",
+                  "  const w = res.data || res;",
+                  "  if (w.walletId) pm.collectionVariables.set('wiseWalletId', w.walletId);",
+                  "} catch(e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\"provider\":\"WISE\",\"mock\":true}" },
+            "url": { "raw": "{{baseUrl}}/api/wallet-integration/wallets/connect", "host": ["{{baseUrl}}"], "path": ["api","wallet-integration","wallets","connect"] }
+          }
+        },
+        {
+          "name": "GET Wise Balance (mock wallet)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/wallet-integration/wallets/{{wiseWalletId}}/balance",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","wallet-integration","wallets","{{wiseWalletId}}","balance"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Wallets - Common",
+      "item": [
+        {
+          "name": "GET User Wallets",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/wallet-integration/wallets", "host": ["{{baseUrl}}"], "path": ["api","wallet-integration","wallets"] }
+          }
+        },
+        {
+          "name": "DELETE Disconnect Wallet (by walletId)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{\"walletId\":\"{{wiseWalletId}}\"}" },
+            "url": { "raw": "{{baseUrl}}/api/wallet-integration/wallets/disconnect", "host": ["{{baseUrl}}"], "path": ["api","wallet-integration","wallets","disconnect"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Transfers",
+      "item": [
+        {
+          "name": "POST Direct Transfer Wise→Wise (same provider)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "try {",
+                  "  const res = pm.response.json();",
+                  "  const tx = res.data || res;",
+                  "  if (tx.id) pm.collectionVariables.set('lastTransactionId', tx.id);",
+                  "} catch(e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fromWalletId\": \"{{wiseWalletId}}\",\n  \"toWalletId\": \"{{secondWiseWalletId}}\",\n  \"amount\": 5.25,\n  \"currency\": \"USD\",\n  \"note\": \"Wise→Wise test\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/wallet-integration/transactions/transfer", "host": ["{{baseUrl}}"], "path": ["api","wallet-integration","transactions","transfer"] }
+          }
+        },
+        {
+          "name": "POST Cross-wallet Wise→Other (via Rapyd; requires Rapyd keys)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "try {",
+                  "  const res = pm.response.json();",
+                  "  const tx = res.data || res;",
+                  "  if (tx.id) pm.collectionVariables.set('lastTransactionId', tx.id);",
+                  "} catch(e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fromWalletId\": \"{{wiseWalletId}}\",\n  \"toWalletId\": \"TARGET_WALLET_ID\",\n  \"amount\": 3.75,\n  \"currency\": \"USD\",\n  \"note\": \"Wise cross-wallet via Rapyd\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/wallet-integration/transactions/transfer", "host": ["{{baseUrl}}"], "path": ["api","wallet-integration","transactions","transfer"] }
+          }
+        },
+        {
+          "name": "GET My Transactions",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": { "raw": "{{baseUrl}}/api/wallet-integration/transactions", "host": ["{{baseUrl}}"], "path": ["api","wallet-integration","transactions"] }
+          }
+        },
+        {
+          "name": "GET Transaction by ID",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/wallet-integration/transactions/{{lastTransactionId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","wallet-integration","transactions","{{lastTransactionId}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "QR",
+      "item": [
+        {
+          "name": "POST Generate Bank Deposit QR",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "try {",
+                  "  const res = pm.response.json();",
+                  "  const qr = res.data || res;",
+                  "  if (qr.id) pm.collectionVariables.set('qrId', qr.id);",
+                  "} catch(e) {}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bankProvider\": \"WISE\",\n  \"amount\": 20.00,\n  \"currency\": \"USD\",\n  \"accountDetails\": {\"iban\": \"{{WISE_WALLET_ACCOUNT_ID || ''}}\"}\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/wallet-integration/qr/bank-deposit", "host": ["{{baseUrl}}"], "path": ["api","wallet-integration","qr","bank-deposit"] }
+          }
+        },
+        {
+          "name": "GET QR Status",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/wallet-integration/qr/{{qrId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api","wallet-integration","qr","{{qrId}}","status"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

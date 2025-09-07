@@ -9,7 +9,7 @@ class StripeGateway extends MethodBasedPayment {
     this.isProduction = process.env.NODE_ENV === 'production';
   }
 
-  async attachBankAccount({ userId, paymentMethodId, bankAccount }) {
+  async attachBankAccount({ customerId, paymentMethodId, bankAccount }) {
     try {
       console.log('Attaching Stripe payment method:', { 
         paymentMethodId,
@@ -18,43 +18,77 @@ class StripeGateway extends MethodBasedPayment {
 
       // Create or get customer
       let customer;
-      if (bankAccount?.email) {
+      if (customerId) {
+        try {
+          customer = await this.stripe.customers.retrieve(customerId);
+        } catch (err) {
+          // If provided customerId doesn't exist, create a new customer
+          if (err && err.code === 'resource_missing') {
+            customer = await this.stripe.customers.create({
+              email: bankAccount?.email,
+              name: bankAccount?.name || 'Stripe User',
+            });
+          } else {
+            throw err;
+          }
+        }
+      } else if (bankAccount?.email) {
         const existingCustomers = await this.stripe.customers.list({
           email: bankAccount.email,
           limit: 1
         });
-        
-        if (existingCustomers.data.length > 0) {
-          customer = existingCustomers.data[0];
-        } else {
-          customer = await this.stripe.customers.create({
-            email: bankAccount.email,
-            name: bankAccount?.name || 'Stripe User',
-            metadata: {
-              userId: userId.toString()
-            }
-          });
-        }
+        customer = existingCustomers.data[0] || await this.stripe.customers.create({
+          email: bankAccount.email,
+          name: bankAccount?.name || 'Stripe User',
+        });
       } else {
         customer = await this.stripe.customers.create({
           name: bankAccount?.name || 'Stripe User',
-          metadata: {
-            userId: userId.toString()
-          }
         });
       }
 
       // Attach payment method to customer
-      await this.stripe.paymentMethods.attach(paymentMethodId, {
-        customer: customer.id
-      });
+      // Retrieve payment method to check current attachment
+      let paymentMethod = await this.stripe.paymentMethods.retrieve(paymentMethodId);
 
-      // Set as default payment method
-      await this.stripe.customers.update(customer.id, {
-        invoice_settings: {
-          default_payment_method: paymentMethodId
+      if (paymentMethod.customer && paymentMethod.customer !== customer.id) {
+        // If attached to a different customer, try to detach then reattach
+        try {
+          await this.stripe.paymentMethods.detach(paymentMethodId);
+        } catch (detachErr) {
+          // If detach fails, surface a helpful error
+          throw new Error(
+            `PaymentMethod ${paymentMethodId} is already attached to another customer and cannot be detached automatically. Use a new test PaymentMethod (e.g., pm_card_visa) or detach it in Stripe first.`
+          );
         }
-      });
+        // Refresh reference after detach
+        paymentMethod = await this.stripe.paymentMethods.retrieve(paymentMethodId);
+      }
+
+      if (!paymentMethod.customer) {
+        await this.stripe.paymentMethods.attach(paymentMethodId, {
+          customer: customer.id
+        });
+      }
+
+      // Set as default payment method (best-effort)
+      try {
+        await this.stripe.customers.update(customer.id, {
+          invoice_settings: {
+            default_payment_method: paymentMethodId
+          }
+        });
+      } catch (setDefaultErr) {
+        // If Stripe complains it's not attached, re-check once, otherwise continue without failing
+        const check = await this.stripe.paymentMethods.retrieve(paymentMethodId);
+        if (!check.customer || check.customer !== customer.id) {
+          // Not attached to this customer; proceed without default assignment
+          console.warn('Stripe default_payment_method not set because PM not attached to this customer. Proceeding.');
+        } else {
+          // Some other error; proceed (not critical for our flow)
+          console.warn('Stripe default_payment_method update warning:', setDefaultErr.message);
+        }
+      }
 
       return {
         attachedPaymentMethodId: paymentMethodId,

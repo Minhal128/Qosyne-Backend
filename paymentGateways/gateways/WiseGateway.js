@@ -106,6 +106,26 @@ class WiseGateway extends MethodBasedPayment {
     }
   }
 
+  // Create Order (pre-quote) for Wise to align with controller expectations
+  async createOrder({ userId, price, currency = 'USD', state }) {
+    try {
+      // Create a quote as a preparatory step; use same currency for simplicity
+      const quoteId = await this.createQuote({
+        amount: price,
+        sourceCurrency: currency,
+        targetCurrency: currency,
+      });
+
+      return {
+        orderID: quoteId,
+        links: [],
+      };
+    } catch (error) {
+      console.error('Error creating Wise order:', error);
+      throw new Error(`Failed to create order: ${this._parseError(error)}`);
+    }
+  }
+
   // 🟢 Create Recipient Account (Fixed for BUSINESS type)
   async createRecipientAccount({
     iban,

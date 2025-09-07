@@ -65,6 +65,8 @@ enum WalletProvider {
   VENMO
   APPLEPAY
   RAPYD
+  STRIPE
+  BRAINTREE
 }
 
 model tokens {
