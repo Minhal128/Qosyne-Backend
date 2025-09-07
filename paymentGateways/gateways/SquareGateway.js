@@ -21,6 +21,7 @@ class SquareGateway extends MethodBasedPayment {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.accessToken}`,
+        'Square-Version': process.env.SQUARE_VERSION || '2024-06-20',
       },
     });
   }
@@ -58,29 +59,28 @@ class SquareGateway extends MethodBasedPayment {
     }
   }
 
-  async storeCardOnFile(customerId, sourceId) {
+  async storeCardOnFile(customerId, sourceId, cardholderName) {
     try {
       const res = await this.axiosInstance.post('/cards', {
         idempotency_key: uuidv4(),
         source_id: sourceId,
         card: {
           customer_id: customerId,
+          ...(cardholderName ? { cardholder_name: cardholderName } : {}),
         },
       });
 
       return res.data.card.id;
     } catch (err) {
-      console.error(
-        '❌ Storing card failed:',
-        err?.response?.data || err.message,
-      );
-      throw new Error('Failed to store card on file');
+      console.error('❌ Storing card failed:', err?.response?.data || err.message);
+      const msg = err?.response?.data?.errors?.[0]?.detail || err.message;
+      throw new Error(`Failed to store card on file: ${msg}`);
     }
   }
 
   async attachBankAccount({ userId, paymentMethodId, bankAccount }) {
     const customerId = await this.createOrGetCustomer(bankAccount);
-    const cardId = await this.storeCardOnFile(customerId, paymentMethodId);
+    const cardId = await this.storeCardOnFile(customerId, paymentMethodId, bankAccount?.name);
 
     return {
       attachedPaymentMethodId: cardId,
