@@ -34,14 +34,15 @@ class BraintreeGateway extends MethodBasedPayment {
         if (searchResult.length > 0) {
           customer = searchResult[0];
         } else {
-          const createResult = await this.gateway.customer.create({
+          const createPayload = {
             email: bankAccount.email,
             firstName: bankAccount?.firstName || bankAccount?.name?.split(' ')[0] || 'Braintree',
             lastName: bankAccount?.lastName || bankAccount?.name?.split(' ').slice(1).join(' ') || 'User',
-            customFields: {
-              userId: userId.toString()
-            }
-          });
+          };
+          if (userId !== undefined && userId !== null) {
+            createPayload.customFields = { userId: String(userId) };
+          }
+          const createResult = await this.gateway.customer.create(createPayload);
           
           if (!createResult.success) {
             throw new Error(`Failed to create customer: ${createResult.message}`);
@@ -50,13 +51,14 @@ class BraintreeGateway extends MethodBasedPayment {
           customer = createResult.customer;
         }
       } else {
-        const createResult = await this.gateway.customer.create({
+        const createPayload = {
           firstName: bankAccount?.firstName || bankAccount?.name?.split(' ')[0] || 'Braintree',
           lastName: bankAccount?.lastName || bankAccount?.name?.split(' ').slice(1).join(' ') || 'User',
-          customFields: {
-            userId: userId.toString()
-          }
-        });
+        };
+        if (userId !== undefined && userId !== null) {
+          createPayload.customFields = { userId: String(userId) };
+        }
+        const createResult = await this.gateway.customer.create(createPayload);
         
         if (!createResult.success) {
           throw new Error(`Failed to create customer: ${createResult.message}`);
