@@ -601,9 +601,13 @@ exports.attachPaymentMethod = async (req, res) => {
     });
     console.log('existingWallet', existingWallet);
     if (existingWallet) {
-      return res.status(400).json({
-        error: 'This payment gateway is already linked to your profile',
-        status_code: 400,
+      return res.status(200).json({
+        message: 'Payment method already attached',
+        data: {
+          attachedPaymentMethodId: existingWallet.walletId,
+          connectedWalletId: existingWallet.id,
+        },
+        status_code: 200,
       });
     }
     const paymentGateway = paymentFactory(paymentMethod);
