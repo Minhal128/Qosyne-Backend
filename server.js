@@ -11,6 +11,7 @@ const supportRoutes = require('./routes/supportRoutes');
 const taxSettingRoutes = require('./routes/taxSettingRoutes');
 const dashboardRoutes = require('./routes/adminDashboard');
 const walletIntegrationRoutes = require('./routes/walletIntegrationRoutes');
+const userDataRoutes = require('./routes/userDataRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
 
 const prisma = new PrismaClient({
@@ -19,7 +20,25 @@ const prisma = new PrismaClient({
 
 const app = express();
 
-app.use(cors());
+// Define the allowed origins for CORS
+const allowedOrigins = [
+  'https://qosyncefrontend.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:5173'
+];
+
+// Configure CORS options
+const corsOptions = {
+  origin: function (origin, callback) {
+    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  }
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(fileUpload({
   useTempFiles: true,
@@ -39,6 +58,8 @@ app.use('/api', dashboardRoutes);
 // New wallet integration routes
 app.use('/api/wallet-integration', walletIntegrationRoutes);
 app.use('/api/webhooks', webhookRoutes);
+// New generic user data routes (transactions, wallets)
+app.use('/api', userDataRoutes);
 
 app.get('/', async (req, res) => {
   try {

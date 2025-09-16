@@ -53,13 +53,28 @@ const formatProviderName = (provider) => {
 
 exports.getConnectedWallets = async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const numericUserId = Number(req.user.userId);
+    if (!numericUserId || Number.isNaN(numericUserId)) {
+      return res.status(401).json({
+        data: [],
+        message: 'Invalid authenticated user id',
+        status_code: 401,
+      });
+    }
     
     // Fetch user's external connected wallets from the new system
-    const externalWallets = await prisma.connectedWallets.findMany({
-      where: { userId, isActive: true },
+    let externalWallets = await prisma.connectedWallets.findMany({
+      where: { userId: numericUserId, isActive: true },
       orderBy: { createdAt: 'desc' }
     });
+    
+    // Fallback: if none found, try without isActive filter to include legacy rows
+    if (externalWallets.length === 0) {
+      externalWallets = await prisma.connectedWallets.findMany({
+        where: { userId: numericUserId },
+        orderBy: { createdAt: 'desc' }
+      });
+    }
 
     // Format the wallets for response
     const wallets = externalWallets.map((cw) => ({

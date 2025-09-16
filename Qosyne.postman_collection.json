@@ -1,0 +1,655 @@
+{
+	"info": {
+		"_postman_id": "42a8a161-8519-4463-9ec5-85f2a011f94d",
+		"name": "Qosyne",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "40595820",
+		"_collection_link": "https://www.postman.com/ntr0py-2037/workspace/3ntr0py-workspace/collection/40595820-42a8a161-8519-4463-9ec5-85f2a011f94d?action=share&source=collection_link&creator=40595820"
+	},
+	"item": [
+		{
+			"name": "Login",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n  \"email\": \"admin110@test.com\",\r\n  \"password\": \"password123\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://qosynebackend.vercel.app/api/auth/login",
+					"protocol": "https",
+					"host": [
+						"qosynebackend",
+						"vercel",
+						"app"
+					],
+					"path": [
+						"api",
+						"auth",
+						"login"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Signup",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": ""
+				}
+			},
+			"response": [
+				{
+					"name": "signup",
+					"originalRequest": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"name\": \"Test User\",\r\n  \"email\": \"test1@example.com\",\r\n  \"password\": \"password123\",\r\n  \"confirmPassword\": \"password123\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://qosynebackend.vercel.app/api/auth/register",
+							"protocol": "https",
+							"host": [
+								"qosynebackend",
+								"vercel",
+								"app"
+							],
+							"path": [
+								"api",
+								"auth",
+								"register"
+							]
+						}
+					},
+					"status": "Created",
+					"code": 201,
+					"_postman_previewlanguage": "Text",
+					"header": [
+						{
+							"key": "X-Powered-By",
+							"value": "Express"
+						},
+						{
+							"key": "Access-Control-Allow-Origin",
+							"value": "*"
+						},
+						{
+							"key": "Content-Type",
+							"value": "application/json; charset=utf-8"
+						},
+						{
+							"key": "Content-Length",
+							"value": "395"
+						},
+						{
+							"key": "ETag",
+							"value": "W/\"18b-g148wwE0gy+E2ssw80Nw0OnOEI8\""
+						},
+						{
+							"key": "Date",
+							"value": "Wed, 03 Sep 2025 10:23:12 GMT"
+						},
+						{
+							"key": "Connection",
+							"value": "keep-alive"
+						},
+						{
+							"key": "Keep-Alive",
+							"value": "timeout=5"
+						}
+					],
+					"cookie": [],
+					"body": "{\n    \"message\": \"User registered successfully. Please verify your email.\",\n    \"data\": {\n        \"id\": 3,\n        \"name\": \"Test User\",\n        \"email\": \"test1@example.com\",\n        \"role\": \"USER\",\n        \"isVerified\": false,\n        \"isDeleted\": false,\n        \"pic\": null,\n        \"createdAt\": \"2025-09-03T10:23:12.156Z\",\n        \"updatedAt\": \"2025-09-03T10:23:12.156Z\",\n        \"designation\": null,\n        \"phoneNumber\": null,\n        \"dateOfBirth\": null,\n        \"emailNotification\": true,\n        \"smsNotification\": true\n    },\n    \"status_code\": 201\n}"
+				}
+			]
+		},
+		{
+			"name": "Send-OTP",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n  \"email\": \"admin@test.com\"\r\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "https://qosynebackend.vercel.app/api/auth/send-otp",
+					"protocol": "https",
+					"host": [
+						"qosynebackend",
+						"vercel",
+						"app"
+					],
+					"path": [
+						"api",
+						"auth",
+						"send-otp"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Verify-OTP",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": ""
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "wallet-received",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": ""
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "wallet-connection",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": ""
+				}
+			},
+			"response": [
+				{
+					"name": "paypal connection",
+					"originalRequest": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{vault:json-web-token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"provider\": \"PAYPAL\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "https://qosynebackend.vercel.app/api/wallet-integration/wallets/connect",
+							"protocol": "https",
+							"host": [
+								"qosynebackend",
+								"vercel",
+								"app"
+							],
+							"path": [
+								"api",
+								"wallet-integration",
+								"wallets",
+								"connect"
+							]
+						}
+					},
+					"status": "Created",
+					"code": 201,
+					"_postman_previewlanguage": "Text",
+					"header": [
+						{
+							"key": "X-Powered-By",
+							"value": "Express"
+						},
+						{
+							"key": "Access-Control-Allow-Origin",
+							"value": "*"
+						},
+						{
+							"key": "Content-Type",
+							"value": "application/json; charset=utf-8"
+						},
+						{
+							"key": "Content-Length",
+							"value": "566"
+						},
+						{
+							"key": "ETag",
+							"value": "W/\"236-CHKWX9BO2SWjuCpIb2DLDBVJWdM\""
+						},
+						{
+							"key": "Date",
+							"value": "Wed, 03 Sep 2025 10:38:39 GMT"
+						},
+						{
+							"key": "Connection",
+							"value": "keep-alive"
+						},
+						{
+							"key": "Keep-Alive",
+							"value": "timeout=5"
+						}
+					],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"data\": {\n        \"wallet\": {\n            \"id\": 1,\n            \"userId\": 4,\n            \"provider\": \"PAYPAL\",\n            \"walletId\": \"paypal_4_1756895919710\",\n            \"customerId\": null,\n            \"accountEmail\": \"test4@paypal.com\",\n            \"fullName\": \"PayPal User 4\",\n            \"username\": null,\n            \"balance\": \"0\",\n            \"currency\": \"USD\",\n            \"isActive\": true,\n            \"accessToken\": \"mock_access_token_1756895919710\",\n            \"refreshToken\": \"mock_refresh_token_1756895919710\",\n            \"lastSync\": \"2025-09-03T10:38:39.711Z\",\n            \"capabilities\": \"[\\\"send\\\",\\\"receive\\\",\\\"balance_check\\\"]\",\n            \"createdAt\": \"2025-09-03T10:38:39.718Z\",\n            \"updatedAt\": \"2025-09-03T10:38:39.718Z\"\n        }\n    },\n    \"message\": \"Wallet connected successfully\"\n}"
+				}
+			]
+		},
+		{
+			"name": "Balance Inquiry",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": ""
+				}
+			},
+			"response": [
+				{
+					"name": "balance inquery",
+					"originalRequest": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "https://qosynebackend.vercel.app/api/wallet-integration/wallets/paypal_4_1756895919710/balance",
+							"protocol": "https",
+							"host": [
+								"qosynebackend",
+								"vercel",
+								"app"
+							],
+							"path": [
+								"api",
+								"wallet-integration",
+								"wallets",
+								"paypal_4_1756895919710",
+								"balance"
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "Text",
+					"header": [
+						{
+							"key": "X-Powered-By",
+							"value": "Express"
+						},
+						{
+							"key": "Access-Control-Allow-Origin",
+							"value": "*"
+						},
+						{
+							"key": "Content-Type",
+							"value": "application/json; charset=utf-8"
+						},
+						{
+							"key": "Content-Length",
+							"value": "154"
+						},
+						{
+							"key": "ETag",
+							"value": "W/\"9a-PY07+5vE5ZcazyKRGa+HMzri6gA\""
+						},
+						{
+							"key": "Date",
+							"value": "Wed, 03 Sep 2025 10:40:59 GMT"
+						},
+						{
+							"key": "Connection",
+							"value": "keep-alive"
+						},
+						{
+							"key": "Keep-Alive",
+							"value": "timeout=5"
+						}
+					],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"data\": {\n        \"balance\": {\n            \"amount\": 0,\n            \"currency\": \"USD\",\n            \"lastUpdated\": \"2025-09-03T10:40:59.954Z\"\n        }\n    },\n    \"message\": \"Wallet balance fetched successfully\"\n}"
+				}
+			]
+		},
+		{
+			"name": "QR-Generator",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": ""
+				}
+			},
+			"response": [
+				{
+					"name": "New Request",
+					"originalRequest": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"bankProvider\": \"CHASE\",\r\n  \"amount\": 100.00,\r\n  \"currency\": \"USD\",\r\n  \"accountDetails\": {\r\n    \"accountNumber\": \"1234567890\",\r\n    \"routingNumber\": \"021000021\"\r\n  },\r\n  \"description\": \"Test bank deposit\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "http://localhost:5000/api/wallet-integration/qr/bank-deposit",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "5000",
+							"path": [
+								"api",
+								"wallet-integration",
+								"qr",
+								"bank-deposit"
+							]
+						}
+					},
+					"status": "Created",
+					"code": 201,
+					"_postman_previewlanguage": "Text",
+					"header": [
+						{
+							"key": "X-Powered-By",
+							"value": "Express"
+						},
+						{
+							"key": "Access-Control-Allow-Origin",
+							"value": "*"
+						},
+						{
+							"key": "Content-Type",
+							"value": "application/json; charset=utf-8"
+						},
+						{
+							"key": "Content-Length",
+							"value": "791"
+						},
+						{
+							"key": "ETag",
+							"value": "W/\"317-v5HbYQht6OmblstnpObVHjipZPA\""
+						},
+						{
+							"key": "Date",
+							"value": "Wed, 03 Sep 2025 10:45:19 GMT"
+						},
+						{
+							"key": "Connection",
+							"value": "keep-alive"
+						},
+						{
+							"key": "Keep-Alive",
+							"value": "timeout=5"
+						}
+					],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"data\": {\n        \"qrCode\": {\n            \"id\": \"1da5c8cd-e08d-4b36-a8ba-0bee6714c792\",\n            \"payload\": \"{\\\"version\\\":\\\"1.0\\\",\\\"type\\\":\\\"bank_deposit\\\",\\\"qrId\\\":\\\"1da5c8cd-e08d-4b36-a8ba-0bee6714c792\\\",\\\"bankProvider\\\":\\\"CHASE\\\",\\\"amount\\\":100,\\\"currency\\\":\\\"USD\\\",\\\"accountDetails\\\":{\\\"accountNumber\\\":\\\"1234567890\\\",\\\"routingNumber\\\":\\\"021000021\\\"},\\\"description\\\":\\\"Test bank deposit\\\",\\\"deepLink\\\":\\\"banking://deposit?qr=1da5c8cd-e08d-4b36-a8ba-0bee6714c792\\\",\\\"timestamp\\\":\\\"2025-09-03T10:45:19.561Z\\\"}\",\n            \"expiresAt\": \"2025-09-04T10:45:19.577Z\",\n            \"instructions\": [\n                \"1. Open Generic Bank mobile app\",\n                \"2. Navigate to \\\"Scan to Pay\\\" or \\\"QR Deposit\\\"\",\n                \"3. Scan this QR code\",\n                \"4. Verify deposit details and confirm\"\n            ],\n            \"supportedApps\": [\n                \"Any Banking App\"\n            ]\n        }\n    },\n    \"message\": \"Bank deposit QR code generated successfully\"\n}"
+				}
+			]
+		},
+		{
+			"name": "Peer 2 Peer",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": ""
+				}
+			},
+			"response": [
+				{
+					"name": "p2p",
+					"originalRequest": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"fromWalletId\": \"paypal_4_1756895919710\",\r\n  \"toWalletId\": \"paypal_4_1756895919710\",\r\n  \"amount\": 50.00,\r\n  \"currency\": \"USD\",\r\n  \"description\": \"Test self-transfer (same wallet)\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "http://localhost:5000/api/wallet-integration/transactions/transfer",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "5000",
+							"path": [
+								"api",
+								"wallet-integration",
+								"transactions",
+								"transfer"
+							]
+						}
+					},
+					"status": "Created",
+					"code": 201,
+					"_postman_previewlanguage": "Text",
+					"header": [
+						{
+							"key": "X-Powered-By",
+							"value": "Express"
+						},
+						{
+							"key": "Access-Control-Allow-Origin",
+							"value": "*"
+						},
+						{
+							"key": "Content-Type",
+							"value": "application/json; charset=utf-8"
+						},
+						{
+							"key": "Content-Length",
+							"value": "585"
+						},
+						{
+							"key": "ETag",
+							"value": "W/\"249-FZLyJ7BcetdB0KKEZbICnzHYtO4\""
+						},
+						{
+							"key": "Date",
+							"value": "Wed, 03 Sep 2025 10:55:20 GMT"
+						},
+						{
+							"key": "Connection",
+							"value": "keep-alive"
+						},
+						{
+							"key": "Keep-Alive",
+							"value": "timeout=5"
+						}
+					],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"data\": {\n        \"transaction\": {\n            \"id\": 1,\n            \"userId\": 4,\n            \"walletId\": null,\n            \"connectedWalletId\": 1,\n            \"paymentId\": null,\n            \"rapydPaymentId\": null,\n            \"rapydPayoutId\": null,\n            \"amount\": \"50\",\n            \"currency\": \"USD\",\n            \"provider\": \"PAYPAL\",\n            \"type\": \"PEER_TO_PEER\",\n            \"status\": \"PENDING\",\n            \"fees\": \"1.25\",\n            \"estimatedCompletion\": \"2025-09-03T10:57:20.120Z\",\n            \"failureReason\": null,\n            \"metadata\": \"{\\\"toWalletId\\\":1,\\\"toProvider\\\":\\\"PAYPAL\\\",\\\"description\\\":\\\"Test self-transfer (same wallet)\\\"}\",\n            \"createdAt\": \"2025-09-03T10:55:20.123Z\",\n            \"updatedAt\": \"2025-09-03T10:55:20.123Z\",\n            \"completedAt\": null\n        }\n    },\n    \"message\": \"Transfer initiated successfully\"\n}"
+				},
+				{
+					"name": "cross check",
+					"originalRequest": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"fromWalletId\": \"paypal_6_1756897386908\",\r\n  \"toWalletId\": \"googlepay_7_1756897428544\",\r\n  \"amount\": 50.00,\r\n  \"currency\": \"USD\",\r\n  \"description\": \"Cross-wallet transfer test: PayPal to Google Pay\"\r\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "http://localhost:5000/api/wallet-integration/transactions/transfer",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "5000",
+							"path": [
+								"api",
+								"wallet-integration",
+								"transactions",
+								"transfer"
+							]
+						}
+					},
+					"status": "Created",
+					"code": 201,
+					"_postman_previewlanguage": "Text",
+					"header": [
+						{
+							"key": "X-Powered-By",
+							"value": "Express"
+						},
+						{
+							"key": "Access-Control-Allow-Origin",
+							"value": "*"
+						},
+						{
+							"key": "Content-Type",
+							"value": "application/json; charset=utf-8"
+						},
+						{
+							"key": "Content-Length",
+							"value": "604"
+						},
+						{
+							"key": "ETag",
+							"value": "W/\"25c-TLZ3MbuN4+vWiCOhCCJqmp9Js6M\""
+						},
+						{
+							"key": "Date",
+							"value": "Wed, 03 Sep 2025 11:09:29 GMT"
+						},
+						{
+							"key": "Connection",
+							"value": "keep-alive"
+						},
+						{
+							"key": "Keep-Alive",
+							"value": "timeout=5"
+						}
+					],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"data\": {\n        \"transaction\": {\n            \"id\": 3,\n            \"userId\": 6,\n            \"walletId\": null,\n            \"connectedWalletId\": 2,\n            \"paymentId\": null,\n            \"rapydPaymentId\": null,\n            \"rapydPayoutId\": null,\n            \"amount\": \"50\",\n            \"currency\": \"USD\",\n            \"provider\": \"PAYPAL\",\n            \"type\": \"PEER_TO_PEER\",\n            \"status\": \"PENDING\",\n            \"fees\": \"1.75\",\n            \"estimatedCompletion\": \"2025-09-03T11:24:29.517Z\",\n            \"failureReason\": null,\n            \"metadata\": \"{\\\"toWalletId\\\":3,\\\"toProvider\\\":\\\"GOOGLEPAY\\\",\\\"description\\\":\\\"Cross-wallet transfer test: PayPal to Google Pay\\\"}\",\n            \"createdAt\": \"2025-09-03T11:09:29.521Z\",\n            \"updatedAt\": \"2025-09-03T11:09:29.521Z\",\n            \"completedAt\": null\n        }\n    },\n    \"message\": \"Transfer initiated successfully\"\n}"
+				}
+			]
+		},
+		{
+			"name": "transaction details",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": ""
+				}
+			},
+			"response": [
+				{
+					"name": "transaction details",
+					"originalRequest": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{vault:json-web-token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "https://qosynebackend.vercel.app/api/wallet-integration/transactions",
+							"protocol": "https",
+							"host": [
+								"qosynebackend",
+								"vercel",
+								"app"
+							],
+							"path": [
+								"api",
+								"wallet-integration",
+								"transactions"
+							]
+						}
+					},
+					"status": "OK",
+					"code": 200,
+					"_postman_previewlanguage": "Text",
+					"header": [
+						{
+							"key": "X-Powered-By",
+							"value": "Express"
+						},
+						{
+							"key": "Access-Control-Allow-Origin",
+							"value": "*"
+						},
+						{
+							"key": "Content-Type",
+							"value": "application/json; charset=utf-8"
+						},
+						{
+							"key": "Content-Length",
+							"value": "825"
+						},
+						{
+							"key": "ETag",
+							"value": "W/\"339-eBYQCL71B33wKx08wDfoCbbr4d4\""
+						},
+						{
+							"key": "Date",
+							"value": "Wed, 03 Sep 2025 10:56:58 GMT"
+						},
+						{
+							"key": "Connection",
+							"value": "keep-alive"
+						},
+						{
+							"key": "Keep-Alive",
+							"value": "timeout=5"
+						}
+					],
+					"cookie": [],
+					"body": "{\n    \"success\": true,\n    \"data\": {\n        \"data\": [\n            {\n                \"id\": 1,\n                \"status\": \"COMPLETED\",\n                \"amount\": \"50\",\n                \"currency\": \"USD\",\n                \"provider\": \"PAYPAL\",\n                \"type\": \"PEER_TO_PEER\",\n                \"fees\": \"1.25\",\n                \"fromWallet\": {\n                    \"id\": 1,\n                    \"userId\": 4,\n                    \"provider\": \"PAYPAL\",\n                    \"walletId\": \"paypal_4_1756895919710\",\n                    \"customerId\": null,\n                    \"accountEmail\": \"test4@paypal.com\",\n                    \"fullName\": \"PayPal User 4\",\n                    \"username\": null,\n                    \"balance\": \"0\",\n                    \"currency\": \"USD\",\n                    \"isActive\": true,\n                    \"accessToken\": \"mock_access_token_1756895919710\",\n                    \"refreshToken\": \"mock_refresh_token_1756895919710\",\n                    \"lastSync\": \"2025-09-03T10:38:39.711Z\",\n                    \"capabilities\": \"[\\\"send\\\",\\\"receive\\\",\\\"balance_check\\\"]\",\n                    \"createdAt\": \"2025-09-03T10:38:39.718Z\",\n                    \"updatedAt\": \"2025-09-03T10:38:39.718Z\"\n                },\n                \"createdAt\": \"2025-09-03T10:55:20.123Z\",\n                \"completedAt\": \"2025-09-03T10:55:25.158Z\"\n            }\n        ],\n        \"page\": 1,\n        \"limit\": 20,\n        \"total\": 1,\n        \"pages\": 1\n    },\n    \"message\": \"User transactions fetched successfully\"\n}"
+				}
+			]
+		},
+		{
+			"name": "Attach",
+			"request": {
+				"method": "GET",
+				"header": []
+			},
+			"response": []
+		}
+	]
+}

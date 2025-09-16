@@ -13,7 +13,7 @@ ENVIRONMENT=development
 NODE_ENV=production
 JWT_SECRET=ourjwtSecret
 CLIENT=http://localhost:3000
-BACKEND_URL=https://6f5a-110-39-94-208.ngrok-free.app
+BACKEND_URL=https://qosynebackend.vercel.app/
 FRONTEND_URL=https://qosyne-frontend.vercel.app/
 
 # Email Configuration
@@ -30,7 +30,7 @@ GOOGLE_CLIENT_SECRET=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
 # PayPal Configuration
 PAYPAL_CLIENT_ID=AdoCx8gljHcJclu2hMqonDiCAwksJV6rCSrER9q9AA_XhOuOtGilSLGe24-0SsDf-UR4JYZUm5gTvC6q
 PAYPAL_CLIENT_SECRET=EIzpn3yyZphIwnDkJDpoHY5uf73kxyVkKNHUdV8twVebJMPGfE-b83vZSLDSBnKAyUUZvoISkqHGboHT
-PAYPAL_REDIRECT_URI=https://6f5a-110-39-94-208.ngrok-free.app/api/payment/paypal/callback
+PAYPAL_REDIRECT_URI=https://qosynebackend.vercel.app/api/payment/paypal/callback
 PAYPAL_AUTH_URL=https://www.sandbox.paypal.com/signin/authorize
 PAYPAL_TOKEN_URL=https://api-m.sandbox.paypal.com/v1/oauth2/token
 

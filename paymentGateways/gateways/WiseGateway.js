@@ -200,9 +200,9 @@ class WiseGateway extends MethodBasedPayment {
         console.log('Using Qosyne balance for Wise payment');
         
         // Get the business profile ID (source of funds)
-        const sourceProfileId = process.env.WISE_BUSINESS_PROFILE_ID;
+        const sourceProfileId = process.env.WISE_PROFILE_ID;
         if (!sourceProfileId) {
-          throw new Error('Missing Wise business profile configuration for Qosyne balance');
+          throw new Error('Missing Wise profile configuration for Qosyne balance');
         }
         
         let targetAccountId;
@@ -254,9 +254,12 @@ class WiseGateway extends MethodBasedPayment {
       else if (walletDeposit) {
         // EXISTING CASE: Wallet deposit
         // Keep the existing wallet deposit implementation as is
-        const businessAccountId = process.env.WISE_BUSINESS_ACCOUNT_ID;
+        const businessAccountId = await this._resolveTargetAccountId(process.env.WISE_WALLET_ACCOUNT_ID, {
+          legalType: 'BUSINESS',
+          currency,
+        });
         if (!businessAccountId) {
-          throw new Error('Missing Wise business account configuration');
+          throw new Error('Missing Wise wallet account configuration');
         }
 
         const quote = await this.createQuote({
@@ -409,7 +412,7 @@ class WiseGateway extends MethodBasedPayment {
 
   async _createTransfer({ targetAccount, quoteUuid, reference, purpose, sourceAccountId }) {
     const requestBody = {
-      targetAccount: parseInt(targetAccount),
+      targetAccount: !isNaN(parseInt(targetAccount)) ? parseInt(targetAccount) : targetAccount,
       quoteUuid,
       customerTransactionId: crypto.randomUUID(),
       details: {
@@ -421,7 +424,7 @@ class WiseGateway extends MethodBasedPayment {
     
     // Add sourceAccountId if provided
     if (sourceAccountId) {
-      requestBody.sourceAccountId = parseInt(sourceAccountId);
+      requestBody.sourceAccountId = !isNaN(parseInt(sourceAccountId)) ? parseInt(sourceAccountId) : sourceAccountId;
     }
     
     const response = await axios.post(
@@ -430,6 +433,46 @@ class WiseGateway extends MethodBasedPayment {
       { headers: this._getHeaders() },
     );
     return response.data;
+  }
+
+  // Resolve various target account representations to a Wise account ID (number)
+  async _resolveTargetAccountId(targetAccountLike, { legalType = 'BUSINESS', currency = 'EUR' } = {}) {
+    try {
+      if (!targetAccountLike) return null;
+      // If already numeric, just return as number
+      if (!isNaN(parseInt(targetAccountLike))) {
+        return parseInt(targetAccountLike);
+      }
+
+      const value = String(targetAccountLike).trim();
+      // If it looks like an IBAN, create a recipient account and return its id
+      const isIban = /^[A-Z]{2}[0-9A-Z]{13,32}$/.test(value);
+      if (isIban) {
+        const accountId = await this.createRecipientAccount({
+          iban: value,
+          accountHolderName: 'Qosyne Wallet',
+          currency,
+          legalType,
+          details: { country: value.slice(0,2) },
+        });
+        return accountId;
+      }
+
+      // If it's a tokenized recipient we manage, resolve it
+      if (value.startsWith('wise_recipient_')) {
+        const recipientId = await this._getRecipientIdFromToken(value);
+        if (recipientId && !isNaN(parseInt(recipientId))) {
+          return parseInt(recipientId);
+        }
+        return recipientId; // may already be non-numeric in sandbox
+      }
+
+      // Unknown format; return as-is to preserve previous behavior
+      return value;
+    } catch (error) {
+      console.error('Resolve target account error:', error);
+      throw new Error(`Could not resolve Wise target account: ${this._parseError(error)}`);
+    }
   }
 
   _formatPaymentResponse(transfer, useQosyneBalance = false) {

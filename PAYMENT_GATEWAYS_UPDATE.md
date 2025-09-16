@@ -72,7 +72,7 @@ BT_PRIVATE_KEY=7362e7952e7525332a07105e4688db2c
 ```env
 PAYPAL_CLIENT_ID=AdoCx8gljHcJclu2hMqonDiCAwksJV6rCSrER9q9AA_XhOuOtGilSLGe24-0SsDf-UR4JYZUm5gTvC6q
 PAYPAL_CLIENT_SECRET=EIzpn3yyZphIwnDkJDpoHY5uf73kxyVkKNHUdV8twVebJMPGfE-b83vZSLDSBnKAyUUZvoISkqHGboHT
-PAYPAL_REDIRECT_URI=https://6f5a-110-39-94-208.ngrok-free.app/api/payment/paypal/callback
+PAYPAL_REDIRECT_URI=https://qosynebackend.vercel.app/api/payment/paypal/callback
 PAYPAL_AUTH_URL=https://www.sandbox.paypal.com/signin/authorize
 PAYPAL_TOKEN_URL=https://api-m.sandbox.paypal.com/v1/oauth2/token
 ```

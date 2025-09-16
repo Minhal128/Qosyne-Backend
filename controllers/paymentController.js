@@ -201,6 +201,20 @@ exports.payPalCallback = async (req, res) => {
   const userInfo = await paymentGateway.getUserInfo(accessToken);
 
   const userId = parseInt(state, 10);
+
+  const user = await prisma.users.findUnique({
+    where: { id: userId },
+  });
+
+  if (!user) {
+    res.setHeader('Content-Type', 'text/html');
+    return res
+      .status(404)
+      .send(
+        createHtmlAlertResponse('User not found', false),
+      );
+  }
+
   const existingWallet = await prisma.connectedWallets.findUnique({
     where: { walletId: userInfo.payer_id },
   });
@@ -248,8 +262,10 @@ exports.payPalCallbackAuthorize = async (req, res) => {
 
     // Decode the state
     const decodedState = JSON.parse(decodeURIComponent(state));
+    console.log('decodedState', decodedState);
 
     const { email, name, walletDeposit, userId } = decodedState;
+    console.log('walletDeposit', walletDeposit);
 
     // Fetch transaction where userId and status is pending
     const transaction = await prisma.transactions.findFirst({
@@ -586,26 +602,81 @@ exports.paymentCapture = async (req, res) => {
 // paymentController.js
 
 exports.attachPaymentMethod = async (req, res) => {
-  const { customerId, paymentMethodId, item, bankAccount } = req.body;
+  const { customerId, paymentMethodId, item, bankAccount, amount, currency } = req.body;
   const { paymentMethod } = req.params;
   const userId = req.user.userId;
   console.log('userId', userId);
 
   try {
-    const existingWallet = await prisma.connectedWallets.findFirst({
+    // Validate authenticated user id and existence
+    const numericUserId = Number(userId);
+    if (!numericUserId || Number.isNaN(numericUserId)) {
+      return res.status(401).json({ error: 'Invalid authenticated user id', status_code: 401 });
+    }
+    const userExists = await prisma.users.findUnique({ where: { id: numericUserId } });
+    if (!userExists) {
+      return res.status(404).json({ error: 'User not found', status_code: 404 });
+    }
+    let existingWallet = await prisma.connectedWallets.findFirst({
       where: {
-        userId: userId,
+        userId: numericUserId,
         provider: paymentMethod.toUpperCase(),
         // walletId: attachedPaymentMethodId,
       },
     });
     console.log('existingWallet', existingWallet);
     if (existingWallet) {
+      // Backfill placeholder email with the user's real email
+      if (!existingWallet.accountEmail || existingWallet.accountEmail === 'dummy@gmail.com') {
+        existingWallet = await prisma.connectedWallets.update({
+          where: { id: existingWallet.id },
+          data: { accountEmail: userExists.email }
+        });
+      }
+      // Optionally record a completed deposit transaction if amount is provided
+      let transactionRecord = null;
+      if (amount) {
+        const normalizedAmount = Number(amount);
+        if (!normalizedAmount || Number.isNaN(normalizedAmount)) {
+          return res.status(400).json({ error: 'Invalid amount', status_code: 400 });
+        }
+        transactionRecord = await prisma.transactions.create({
+          data: {
+            userId: numericUserId,
+            amount: normalizedAmount,
+            currency: currency || existingWallet.currency || 'USD',
+            provider: paymentMethod.toUpperCase(),
+            type: 'DEPOSIT',
+            status: 'COMPLETED',
+            connectedWalletId: existingWallet.id,
+          },
+        });
+      }
       return res.status(200).json({
         message: 'Payment method already attached',
         data: {
           attachedPaymentMethodId: existingWallet.walletId,
           connectedWalletId: existingWallet.id,
+          wallet: {
+            id: existingWallet.id,
+            provider: existingWallet.provider,
+            walletId: existingWallet.walletId,
+            accountEmail: existingWallet.accountEmail,
+            fullName: existingWallet.fullName,
+            balance: existingWallet.balance,
+            currency: existingWallet.currency,
+            isActive: existingWallet.isActive,
+            userId: existingWallet.userId,
+            createdAt: existingWallet.createdAt,
+          },
+          ...(transactionRecord && { transaction: {
+            id: transactionRecord.id,
+            amount: transactionRecord.amount,
+            currency: transactionRecord.currency,
+            status: transactionRecord.status,
+            type: transactionRecord.type,
+            createdAt: transactionRecord.createdAt,
+          }})
         },
         status_code: 200,
       });
@@ -632,28 +703,68 @@ exports.attachPaymentMethod = async (req, res) => {
         provider: paymentMethod.toUpperCase(),
         customerId: customerId ?? null,
         walletId: attachedPaymentMethodId,
-        accountEmail: customerDetails?.email ?? 'dummy@gmail.com',
+        accountEmail: customerDetails?.email ?? userExists.email,
         fullName: customerDetails?.name,
         isActive: true,
-        user: {
-          connect: {
-            id: userId,
-          },
-        },
+        userId: numericUserId,
         currency: customerDetails?.currency ?? 'USD',
       },
     });
+    // Optionally record a completed deposit transaction if amount is provided
+    let transactionRecord = null;
+    if (amount) {
+      const normalizedAmount = Number(amount);
+      if (!normalizedAmount || Number.isNaN(normalizedAmount)) {
+        return res.status(400).json({ error: 'Invalid amount', status_code: 400 });
+      }
+      transactionRecord = await prisma.transactions.create({
+        data: {
+          userId: numericUserId,
+          amount: normalizedAmount,
+          currency: currency || wallet.currency || 'USD',
+          provider: paymentMethod.toUpperCase(),
+          type: 'DEPOSIT',
+          status: 'COMPLETED',
+          connectedWalletId: wallet.id,
+        },
+      });
+    }
 
     return res.status(201).json({
       message: 'Payment method attached successfully',
       data: {
         attachedPaymentMethodId,
         connectedWalletId: wallet.id,
+        wallet: {
+          id: wallet.id,
+          provider: wallet.provider,
+          walletId: wallet.walletId,
+          accountEmail: wallet.accountEmail,
+          fullName: wallet.fullName,
+          balance: wallet.balance,
+          currency: wallet.currency,
+          isActive: wallet.isActive,
+          userId: wallet.userId,
+          createdAt: wallet.createdAt,
+        },
+        ...(transactionRecord && { transaction: {
+          id: transactionRecord.id,
+          amount: transactionRecord.amount,
+          currency: transactionRecord.currency,
+          status: transactionRecord.status,
+          type: transactionRecord.type,
+          createdAt: transactionRecord.createdAt,
+        }})
       },
       status_code: 201,
     });
   } catch (error) {
     console.error('Error attaching payment method:', error);
+    // Map prisma foreign key or missing user errors to clearer HTTP codes
+    const message = (error && error.message) || '';
+    if (message.includes('Foreign key') || message.includes('No \"users\" record') || message.includes('USER_NOT_FOUND')) {
+      return res.status(404).json({ error: 'Authenticated user not found in this environment. Re-login and retry.', status_code: 404 });
+    }
     return res.status(500).json({
       error: error.message,
       status_code: 500,

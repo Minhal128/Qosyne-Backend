@@ -70,7 +70,23 @@ class WalletService {
 
   async connectWallet(userId, walletData) {
     try {
-      const { provider, authCode, accessToken } = walletData;
+      const { authCode, accessToken } = walletData;
+      // Normalize and validate inputs
+      const numericUserId = Number(userId);
+      if (!numericUserId || Number.isNaN(numericUserId)) {
+        throw new Error('Invalid authenticated user id');
+      }
+
+      // Ensure user exists to satisfy FK constraint on connectedWallets.userId
+      const userExists = await prisma.users.findUnique({ where: { id: numericUserId } });
+      if (!userExists) {
+        // Provide a clear error for clients to handle (e.g., 401/404 upstream)
+        const notFoundError = new Error('User not found');
+        notFoundError.code = 'USER_NOT_FOUND';
+        throw notFoundError;
+      }
+
+      const provider = (walletData.provider || '').toUpperCase();
       
       if (!this.providers[provider]) {
         throw new Error(`Unsupported wallet provider: ${provider}`);
@@ -101,7 +117,7 @@ class WalletService {
       // Store wallet connection in database
       const wallet = await prisma.connectedWallets.create({
         data: {
-          userId,
+          userId: numericUserId,
           provider,
           walletId: connectionResult.walletId,
           accountEmail: connectionResult.accountEmail,
@@ -119,6 +135,12 @@ class WalletService {
       return wallet;
     } catch (error) {
       console.error('Error connecting wallet:', error);
+      // Re-throw with a user-friendly message for FK/user issues
+      if ((error && error.code === 'USER_NOT_FOUND') || (error.message || '').includes('Foreign key') || (error.message || '').includes('No "users" record')) {
+        const friendly = new Error('Authenticated user not found in this environment');
+        friendly.code = 'USER_NOT_FOUND';
+        throw friendly;
+      }
       throw error;
     }
   }
