@@ -23,6 +23,8 @@ model users {
   dateOfBirth      DateTime? 
   emailNotification Boolean  @default(true)
   smsNotification   Boolean  @default(true)
+  selectedWalletType String?
+  selectedWalletId   String?
 
   wallet           Wallet?
   sentTransactions transactions[] @relation(name: "SentTransactions")
@@ -169,6 +171,7 @@ model qrCodes {
   expiresAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  destinationWalletId String?
 
   user        users    @relation(fields: [userId], references: [id], onDelete: Cascade)
 

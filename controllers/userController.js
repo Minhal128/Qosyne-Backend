@@ -364,3 +364,220 @@ exports.sendMail = async (req, res) => {
     status_code: 200,
   });
 };
+
+// Set user's selected wallet
+exports.setSelectedWallet = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { walletType, walletId } = req.body;
+
+    if (!walletType) {
+      return res.status(400).json({
+        message: 'Wallet type is required',
+        status_code: 400,
+      });
+    }
+
+    // Get user's connected wallets to find the matching wallet
+    const userWallets = await prisma.connectedWallets.findMany({
+      where: { 
+        userId: userId,
+        isActive: true
+      },
+      select: {
+        id: true,
+        walletId: true,
+        provider: true,
+        accountEmail: true,
+        fullName: true
+      }
+    });
+
+    // Find wallet by type (provider)
+    let selectedWallet = null;
+    
+    if (walletId) {
+      // If walletId is provided, find exact match
+      selectedWallet = userWallets.find(wallet => wallet.walletId === walletId);
+    } else {
+      // If only walletType provided, find first wallet of that type
+      const providerMapping = {
+        'venmo': 'VENMO',
+        'wise': 'WISE', 
+        'googlepay': 'GOOGLEPAY',
+        'applepay': 'APPLEPAY',
+        'square': 'SQUARE'
+      };
+      
+      const providerName = providerMapping[walletType.toLowerCase()];
+      selectedWallet = userWallets.find(wallet => wallet.provider === providerName);
+    }
+
+    if (!selectedWallet) {
+      return res.status(404).json({
+        message: `No ${walletType} wallet found for this user`,
+        status_code: 404,
+      });
+    }
+
+    // Update user's selected wallet preference
+    await prisma.users.update({
+      where: { id: userId },
+      data: {
+        selectedWalletType: walletType.toLowerCase(),
+        selectedWalletId: selectedWallet.walletId,
+      },
+    });
+
+    res.status(200).json({
+      message: 'Selected wallet updated successfully',
+      data: { 
+        walletType: walletType.toLowerCase(),
+        walletId: selectedWallet.walletId,
+        walletDetails: {
+          id: selectedWallet.id,
+          provider: selectedWallet.provider,
+          accountEmail: selectedWallet.accountEmail,
+          fullName: selectedWallet.fullName
+        }
+      },
+      status_code: 200,
+    });
+  } catch (error) {
+    console.error('Error setting selected wallet:', error);
+    res.status(500).json({
+      message: 'Server error',
+      status_code: 500,
+    });
+  }
+};
+
+// Get user's selected wallet
+exports.getSelectedWallet = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+
+    const user = await prisma.users.findUnique({
+      where: { id: userId },
+      select: {
+        selectedWalletType: true,
+        selectedWalletId: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        message: 'User not found',
+        status_code: 404,
+      });
+    }
+
+    res.status(200).json({
+      message: 'Selected wallet retrieved successfully',
+      data: {
+        walletType: user.selectedWalletType,
+        walletId: user.selectedWalletId,
+      },
+      status_code: 200,
+    });
+  } catch (error) {
+    console.error('Error getting selected wallet:', error);
+    res.status(500).json({
+      message: 'Server error',
+      status_code: 500,
+    });
+  }
+};
+
+// Auto-detect wallet type by wallet ID
+exports.detectWalletType = async (req, res) => {
+  try {
+    const { walletId } = req.body;
+
+    if (!walletId) {
+      return res.status(400).json({
+        message: 'Wallet ID is required',
+        status_code: 400,
+      });
+    }
+
+    // Check in connected wallets to find the wallet type
+    // First try to find by walletId (external wallet ID) or by converting to int if it's a number
+    let connectedWallet = null;
+    
+    try {
+      // Try to search by walletId field (which stores external wallet IDs)
+      connectedWallet = await prisma.connectedWallets.findFirst({
+        where: { 
+          walletId: walletId
+        },
+        select: {
+          provider: true,
+          id: true,
+          walletId: true,
+        },
+      });
+      
+      // If not found and walletId is a number, try searching by id field
+      if (!connectedWallet && !isNaN(walletId)) {
+        connectedWallet = await prisma.connectedWallets.findFirst({
+          where: { 
+            id: parseInt(walletId)
+          },
+          select: {
+            provider: true,
+            id: true,
+            walletId: true,
+          },
+        });
+      }
+    } catch (dbError) {
+      console.log('Database search error:', dbError.message);
+    }
+
+    if (connectedWallet) {
+      return res.status(200).json({
+        message: 'Wallet type detected successfully',
+        data: {
+          walletType: connectedWallet.provider.toLowerCase(),
+          walletId: connectedWallet.id,
+          externalWalletId: connectedWallet.walletId,
+        },
+        status_code: 200,
+      });
+    }
+
+    // If not found in connected wallets, try to detect by pattern
+    let detectedType = 'unknown';
+    
+    // Simple pattern detection (you can enhance this)
+    const walletIdLower = walletId.toLowerCase();
+    if (walletIdLower.includes('venmo') || walletIdLower.startsWith('vm_')) {
+      detectedType = 'venmo';
+    } else if (walletIdLower.includes('wise') || walletIdLower.startsWith('ws_')) {
+      detectedType = 'wise';
+    } else if (walletIdLower.includes('google') || walletIdLower.startsWith('gp_')) {
+      detectedType = 'googlepay';
+    } else if (walletIdLower.includes('apple') || walletIdLower.startsWith('ap_')) {
+      detectedType = 'applepay';
+    } else if (walletIdLower.includes('square') || walletIdLower.startsWith('sq_')) {
+      detectedType = 'square';
+    }
+
+    res.status(200).json({
+      message: 'Wallet type detected by pattern',
+      data: {
+        walletType: detectedType,
+        walletId: walletId,
+        detectionMethod: 'pattern',
+      },
+      status_code: 200,
+    });
+  } catch (error) {
+    console.error('Error detecting wallet type:', error);
+    res.status(500).json({
+      message: 'Server error',
+      status_code: 500,
+    });
+  }
+};

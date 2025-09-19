@@ -85,12 +85,16 @@ exports.getConnectedWallets = async (req, res) => {
       accountEmail: cw.accountEmail,
       fullName: cw.fullName,
       username: cw.username,
-      balance: cw.balance,
+      balance: parseFloat(cw.balance) || 0,
       currency: cw.currency,
       isActive: cw.isActive,
       lastSync: cw.lastSync,
-      capabilities: cw.capabilities ? JSON.parse(cw.capabilities) : []
+      capabilities: cw.capabilities ? JSON.parse(cw.capabilities) : [],
+      connectionStatus: cw.isActive ? 'connected' : 'disconnected',
+      displayName: `${formatProviderName(cw.provider)} - ${cw.fullName || cw.username || cw.accountEmail}`
     }));
+
+    console.log(`Found ${wallets.length} connected wallets for user ${numericUserId}`);
 
     // 4) Return combined wallets array
     res.status(200).json({

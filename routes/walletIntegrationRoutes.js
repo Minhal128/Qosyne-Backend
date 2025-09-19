@@ -6,6 +6,7 @@ const tryCatch = require('../middlewares/tryCatch');
 
 // Wallet Management Routes
 router.get('/wallets', authMiddleware, tryCatch(walletIntegrationController.getUserWallets));
+router.get('/wallets/available-for-transfer', authMiddleware, tryCatch(walletIntegrationController.getAvailableWalletsForTransfer));
 router.post('/wallets/connect', authMiddleware, tryCatch(walletIntegrationController.connectWallet));
 router.delete('/wallets/:walletId/disconnect', authMiddleware, tryCatch(walletIntegrationController.disconnectWallet));
 router.get('/wallets/:walletId/balance', authMiddleware, tryCatch(walletIntegrationController.getWalletBalance));
@@ -26,6 +27,9 @@ router.get('/transactions/currencies/supported', authMiddleware, tryCatch(wallet
 
 // QR Code Routes
 router.post('/qr/generate', authMiddleware, tryCatch(walletIntegrationController.generateQRCode));
+router.post('/qr/universal', authMiddleware, tryCatch(walletIntegrationController.generateUniversalQR));
+router.post('/qr/venmo', authMiddleware, tryCatch(walletIntegrationController.generateVenmoQR));
+router.post('/qr/connect-and-generate', authMiddleware, tryCatch(walletIntegrationController.connectWalletAndGenerateQR));
 router.get('/qr/:qrId/status', authMiddleware, tryCatch(walletIntegrationController.getQRStatus));
 router.post('/qr/scan/:qrId', tryCatch(walletIntegrationController.processQRScan));
 router.post('/qr/bank-deposit', authMiddleware, tryCatch(walletIntegrationController.generateBankDepositQR));

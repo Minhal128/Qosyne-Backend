@@ -326,15 +326,15 @@ class WiseGateway extends MethodBasedPayment {
       console.error('Wise payment error:', error);
       
       if (error.response) {
-        const statusCode = error.response.status;
+        const status_code = error.response.status;
         
-        if (statusCode === 400) {
+        if (status_code === 400) {
           throw new Error(`Invalid transfer request: ${this._parseError(error)}`);
-        } else if (statusCode === 401 || statusCode === 403) {
+        } else if (status_code === 401 || status_code === 403) {
           throw new Error('Authentication or authorization failed with Wise');
-        } else if (statusCode === 422) {
+        } else if (status_code === 422) {
           throw new Error(`Validation failed: ${this._parseError(error)}`);
-        } else if (statusCode >= 500) {
+        } else if (status_code >= 500) {
           throw new Error('Wise service is currently unavailable');
         }
       }

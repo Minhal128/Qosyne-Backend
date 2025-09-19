@@ -489,7 +489,7 @@ class WebhookService {
       attempts: 1,
       lastAttempt: new Date().toISOString(),
       nextRetry: null,
-      response: { statusCode: 200, body: 'OK' }
+      response: { status_code: 200, body: 'OK' }
     };
   }
 

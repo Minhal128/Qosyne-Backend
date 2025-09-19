@@ -14,7 +14,7 @@ NODE_ENV=production
 JWT_SECRET=ourjwtSecret
 CLIENT=http://localhost:3000
 BACKEND_URL=https://qosynebackend.vercel.app/
-FRONTEND_URL=https://qosyne-frontend.vercel.app/
+FRONTEND_URL=https://qosyncefrontend.vercel.app/
 
 # Email Configuration
 EMAIL_PASSWORD=sfzq zdfv xyfa cayl

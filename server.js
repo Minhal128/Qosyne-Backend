@@ -13,6 +13,7 @@ const dashboardRoutes = require('./routes/adminDashboard');
 const walletIntegrationRoutes = require('./routes/walletIntegrationRoutes');
 const userDataRoutes = require('./routes/userDataRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
+const qrDisplayRoutes = require('./routes/qrDisplayRoutes');
 
 const prisma = new PrismaClient({
   log: ['query', 'info', 'warn', 'error'], // Enables Prisma query logging for debugging
@@ -61,6 +62,7 @@ app.use('/api/webhooks', webhookRoutes);
 // New generic user data routes (transactions, wallets)
 app.use('/api', userDataRoutes);
 
+// Root route (must be before QR display routes)
 app.get('/', async (req, res) => {
   try {
     await prisma.$connect(); // Ensure database connection
@@ -70,6 +72,9 @@ app.get('/', async (req, res) => {
     res.status(500).json({ error: 'Database connection failed' });
   }
 });
+
+// QR code display routes (after specific routes)
+app.use('/', qrDisplayRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, async () => {

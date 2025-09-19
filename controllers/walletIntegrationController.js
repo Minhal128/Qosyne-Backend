@@ -23,10 +23,92 @@ exports.getUserWallets = async (req, res) => {
   }
 };
 
+exports.getAvailableWalletsForTransfer = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { includeOtherUsers = false } = req.query;
+    
+    // Get user's own wallets
+    const userWallets = await walletService.getUserWallets(userId);
+    
+    let availableWallets = userWallets.map(wallet => ({
+      ...wallet,
+      isOwn: true,
+      canSendFrom: true,
+      canSendTo: true
+    }));
+
+    // If requested, include other users' wallets for sending to (but not from)
+    if (includeOtherUsers === 'true') {
+      const { PrismaClient } = require('@prisma/client');
+      const prisma = new PrismaClient();
+      
+      const otherWallets = await prisma.connectedWallets.findMany({
+        where: { 
+          userId: { not: userId },
+          isActive: true 
+        },
+        select: {
+          id: true,
+          provider: true,
+          walletId: true,
+          accountEmail: true,
+          fullName: true,
+          username: true,
+          currency: true,
+          user: {
+            select: {
+              name: true,
+              email: true
+            }
+          }
+        },
+        take: 50 // Limit for performance
+      });
+
+      const formattedOtherWallets = otherWallets.map(wallet => ({
+        id: wallet.id,
+        provider: wallet.provider,
+        walletId: wallet.walletId,
+        accountEmail: wallet.accountEmail,
+        fullName: wallet.fullName,
+        username: wallet.username,
+        currency: wallet.currency,
+        isOwn: false,
+        canSendFrom: false,
+        canSendTo: true,
+        ownerName: wallet.user.name,
+        ownerEmail: wallet.user.email,
+        displayName: `${wallet.provider} - ${wallet.fullName || wallet.username} (${wallet.user.name})`
+      }));
+
+      availableWallets = [...availableWallets, ...formattedOtherWallets];
+    }
+
+    res.status(200).json({
+      success: true,
+      data: { 
+        wallets: availableWallets,
+        userWalletsCount: userWallets.length,
+        totalWalletsCount: availableWallets.length
+      },
+      message: 'Available wallets for transfer fetched successfully'
+    });
+  } catch (error) {
+    console.error('Error fetching available wallets for transfer:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch available wallets for transfer'
+    });
+  }
+};
+
 exports.connectWallet = async (req, res) => {
   try {
     const userId = req.user.userId;
     const { provider, authCode, accessToken } = req.body;
+
+    console.log(`Attempting to connect ${provider} wallet for user ${userId}`);
 
     if (!provider) {
       return res.status(400).json({
@@ -41,13 +123,46 @@ exports.connectWallet = async (req, res) => {
       accessToken
     });
 
+    console.log(`Successfully connected ${provider} wallet for user ${userId}:`, {
+      walletId: wallet.walletId,
+      provider: wallet.provider,
+      isActive: wallet.isActive
+    });
+
     res.status(201).json({
       success: true,
       data: { wallet },
-      message: 'Wallet connected successfully'
+      message: `${provider} wallet connected successfully`
     });
   } catch (error) {
-    console.error('Error connecting wallet:', error);
+    console.error(`Error connecting ${req.body.provider || 'unknown'} wallet for user ${req.user.userId}:`, error);
+    
+    // Handle specific validation errors with appropriate status codes
+    if (error.message && error.message.includes('already connected')) {
+      return res.status(409).json({
+        success: false,
+        error: error.message,
+        code: 'WALLET_ALREADY_CONNECTED'
+      });
+    }
+    
+    if (error.code === 'USER_NOT_FOUND') {
+      return res.status(404).json({
+        success: false,
+        error: error.message,
+        code: 'USER_NOT_FOUND'
+      });
+    }
+
+    // Handle provider-specific errors
+    if (error.message.includes('credentials not configured')) {
+      return res.status(503).json({
+        success: false,
+        error: error.message,
+        code: 'SERVICE_UNAVAILABLE'
+      });
+    }
+    
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to connect wallet'
@@ -184,6 +299,7 @@ exports.initiateTransfer = async (req, res) => {
     if (!fromWalletId || !toWalletId || !amount || !currency) {
       return res.status(400).json({
         success: false,
+        status_code: 400,
         error: 'From wallet ID, to wallet ID, amount, and currency are required'
       });
     }
@@ -200,6 +316,7 @@ exports.initiateTransfer = async (req, res) => {
 
     res.status(201).json({
       success: true,
+      status_code: 201,
       data: { transaction },
       message: 'Transfer initiated successfully'
     });
@@ -207,6 +324,7 @@ exports.initiateTransfer = async (req, res) => {
     console.error('Error initiating transfer:', error);
     res.status(500).json({
       success: false,
+      status_code: 500,
       error: error.message || 'Failed to initiate transfer'
     });
   }
@@ -346,6 +464,14 @@ exports.getSupportedCurrencies = async (req, res) => {
 
     const currencies = await transactionService.getSupportedCurrencies(fromProvider, toProvider);
 
+    if (error.message && error.message.includes('already connected')) {
+      return res.status(409).json({
+        success: false,
+        error: error.message,
+        code: 'WALLET_ALREADY_CONNECTED'
+      });
+    }
+
     res.status(200).json({
       success: true,
       data: { currencies },
@@ -364,7 +490,7 @@ exports.getSupportedCurrencies = async (req, res) => {
 exports.generateQRCode = async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { type, amount, currency, description, expiresIn, ...qrData } = req.body;
+    const { type, amount, currency, description, expiresIn, destinationWalletId, metadata, ...qrData } = req.body;
 
     if (!type) {
       return res.status(400).json({
@@ -373,20 +499,58 @@ exports.generateQRCode = async (req, res) => {
       });
     }
 
+    // Enhanced QR generation with better validation
+    if (type === 'PAYMENT_REQUEST') {
+      if (!amount || !destinationWalletId) {
+        return res.status(400).json({
+          success: false,
+          error: 'Amount and destinationWalletId are required for payment requests'
+        });
+      }
+
+      // Verify the wallet exists and belongs to the user
+      const { PrismaClient } = require('@prisma/client');
+      const prisma = new PrismaClient();
+      
+      const wallet = await prisma.connectedWallets.findFirst({
+        where: {
+          walletId: destinationWalletId,
+          userId: userId,
+          isActive: true
+        }
+      });
+
+      if (!wallet) {
+        return res.status(404).json({
+          success: false,
+          error: 'Destination wallet not found or not accessible'
+        });
+      }
+
+      console.log(`Generating ${type} QR for ${wallet.provider} wallet:`, {
+        userId,
+        walletId: destinationWalletId,
+        amount,
+        description
+      });
+    }
+
     const qrCode = await qrService.generateQRData({
       type,
       userId,
       amount,
-      currency,
+      currency: currency || 'USD',
       description,
-      expiresIn,
+      expiresIn: expiresIn || 3600, // Default 1 hour
+      destinationWalletId,
+      metadata,
       ...qrData
     });
 
     res.status(201).json({
       success: true,
       data: { qrCode },
-      message: 'QR code generated successfully'
+      message: `${type} QR code generated successfully`
     });
   } catch (error) {
     console.error('Error generating QR code:', error);
@@ -555,6 +719,124 @@ exports.getUserQRCodes = async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to fetch user QR codes'
+    });
+  }
+};
+
+// Universal QR generation endpoint for any wallet provider
+exports.generateUniversalQR = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { walletId, amount, description, expiresIn, currency } = req.body;
+
+    if (!walletId || !amount) {
+      return res.status(400).json({
+        success: false,
+        error: 'Wallet ID and amount are required'
+      });
+    }
+
+    // Get wallet info to determine provider
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+    
+    const wallet = await prisma.connectedWallets.findFirst({
+      where: {
+        walletId,
+        userId,
+        isActive: true
+      }
+    });
+
+    if (!wallet) {
+      return res.status(404).json({
+        success: false,
+        error: 'Wallet not found or not accessible'
+      });
+    }
+
+    console.log(`Generating ${wallet.provider} QR code:`, { userId, walletId, amount, description });
+
+    const universalQR = await qrService.generateUniversalPaymentQR({
+      userId,
+      walletId,
+      amount: parseFloat(amount),
+      currency: currency || 'USD',
+      description: description || 'Payment request',
+      expiresIn: expiresIn || 3600
+    });
+
+    res.status(201).json({
+      success: true,
+      data: { qrCode: universalQR },
+      message: `${wallet.provider} payment QR code generated successfully`
+    });
+  } catch (error) {
+    console.error('Error generating universal QR code:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to generate QR code'
+    });
+  }
+};
+
+// Legacy Venmo-specific endpoint (for backward compatibility)
+exports.generateVenmoQR = async (req, res) => {
+  return await exports.generateUniversalQR(req, res);
+};
+
+// Enhanced endpoint to connect wallet and generate QR in one step
+exports.connectWalletAndGenerateQR = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { provider, credentials, amount, description } = req.body;
+
+    if (!provider || !credentials || !amount) {
+      return res.status(400).json({
+        success: false,
+        error: 'Provider, credentials, and amount are required'
+      });
+    }
+
+    console.log(`Connecting ${provider} wallet and generating QR for user ${userId}`);
+
+    // Step 1: Connect the wallet
+    const wallet = await walletService.connectWallet(userId, {
+      provider,
+      authCode: credentials
+    });
+
+    console.log(`Wallet connected successfully: ${wallet.walletId}`);
+
+    // Step 2: Generate universal QR code for the connected wallet
+    const qrCode = await qrService.generateUniversalPaymentQR({
+      userId,
+      walletId: wallet.walletId,
+      amount: parseFloat(amount),
+      currency: 'USD',
+      description: description || 'Payment request'
+    });
+
+    res.status(201).json({
+      success: true,
+      data: { 
+        wallet: {
+          id: wallet.id,
+          provider: wallet.provider,
+          walletId: wallet.walletId,
+          fullName: wallet.fullName,
+          username: wallet.username,
+          isActive: wallet.isActive
+        },
+        qrCode 
+      },
+      message: `${provider} wallet connected and QR code generated successfully`
+    });
+  } catch (error) {
+    console.error('Error connecting wallet and generating QR:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to connect wallet and generate QR code'
     });
   }
 };
