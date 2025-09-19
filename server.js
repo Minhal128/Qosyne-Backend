@@ -14,6 +14,7 @@ const walletIntegrationRoutes = require('./routes/walletIntegrationRoutes');
 const userDataRoutes = require('./routes/userDataRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
 const qrDisplayRoutes = require('./routes/qrDisplayRoutes');
+const healthRoutes = require('./routes/healthRoutes');
 
 const prisma = new PrismaClient({
   log: ['query', 'info', 'warn', 'error'], // Enables Prisma query logging for debugging
@@ -55,6 +56,7 @@ app.use('/api/payment', paymentRoutes);
 app.use('/api/support', supportRoutes);
 app.use('/api/tax-settings', taxSettingRoutes);
 app.use('/api', dashboardRoutes);
+app.use('/api', healthRoutes);
 
 // New wallet integration routes
 app.use('/api/wallet-integration', walletIntegrationRoutes);
