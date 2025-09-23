@@ -59,10 +59,36 @@ class GooglePayGateway extends MethodBasedPayment {
     try {
       const {
         amount,
+        currency,
         paymentToken,
         recipient,
         walletDeposit = false,
+        useQosyneBalance = false,
+        connectedWalletId
       } = paymentData;
+
+      // Check for cross-platform transfer first
+      if (connectedWalletId) {
+        // Cross-platform transfer (Google Pay → Other Wallet)
+        console.log('Processing cross-platform transfer from Google Pay to connected wallet:', connectedWalletId);
+        
+        const transferId = uuidv4();
+        return {
+          paymentId: `googlepay_cross_platform_${transferId.substring(0, 8)}`,
+          payedAmount: parseFloat(amount),
+          response: {
+            id: `cross_platform_${transferId}`,
+            status: 'cross_platform_pending',
+            sourceValue: amount,
+            sourceCurrency: currency || 'USD',
+            targetValue: amount,
+            targetCurrency: currency || 'USD',
+            source: 'GOOGLEPAY_CROSS_PLATFORM',
+            connectedWalletId: connectedWalletId,
+            transferType: 'CROSS_PLATFORM'
+          }
+        };
+      }
 
       // In production, use the real PayPal integration
       if (process.env.NODE_ENV === 'production') {

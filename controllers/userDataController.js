@@ -13,15 +13,15 @@ exports.getUserTransactions = async (req, res) => {
     const transactions = await prisma.transactions.findMany({
       where: { userId: numericUserId },
       include: {
-        wallet: true,
-        connectedWallet: true,
+        Wallet: true,
+        connectedWallets: true,
       },
       orderBy: { createdAt: 'desc' },
     });
 
     const data = transactions.map((t) => ({
       id: t.id,
-      userId: t.wallet ? t.wallet.userId : t.userId,
+      userId: t.Wallet ? t.Wallet.userId : t.userId,
       walletId: t.walletId || '',
       connectedWalletId: t.connectedWalletId || '',
       paymentId: t.paymentId || '',

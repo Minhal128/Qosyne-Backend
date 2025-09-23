@@ -15,6 +15,8 @@ const userDataRoutes = require('./routes/userDataRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
 const qrDisplayRoutes = require('./routes/qrDisplayRoutes');
 const healthRoutes = require('./routes/healthRoutes');
+const rapydWalletRoutes = require('./routes/rapydWalletRoutes');
+const realTimeRoutes = require('./routes/realTimeRoutes');
 
 const prisma = new PrismaClient({
   log: ['query', 'info', 'warn', 'error'], // Enables Prisma query logging for debugging
@@ -26,7 +28,8 @@ const app = express();
 const allowedOrigins = [
   'https://qosyncefrontend.vercel.app',
   'http://localhost:3000',
-  'http://localhost:5173'
+  'http://localhost:5173',
+  'https://qosyne.vercel.app'
 ];
 
 // Configure CORS options
@@ -63,6 +66,10 @@ app.use('/api/wallet-integration', walletIntegrationRoutes);
 app.use('/api/webhooks', webhookRoutes);
 // New generic user data routes (transactions, wallets)
 app.use('/api', userDataRoutes);
+// Real Rapyd wallet integration routes
+app.use('/api/rapyd', rapydWalletRoutes);
+// Real-time monitoring and dashboard routes
+app.use('/api/realtime', realTimeRoutes);
 
 // Root route (must be before QR display routes)
 app.get('/', async (req, res) => {

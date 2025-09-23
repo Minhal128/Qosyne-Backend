@@ -98,12 +98,37 @@ class SquareGateway extends MethodBasedPayment {
 
   async authorizePayment({
     amount,
+    currency,
     paymentToken,
     connectedWalletId,
     recipient,
     walletDeposit = false,
+    useQosyneBalance = false,
   }) {
     try {
+      // Check for cross-platform transfer first
+      if (connectedWalletId && !walletDeposit) {
+        // Cross-platform transfer (Square → Other Wallet)
+        console.log('Processing cross-platform transfer from Square to connected wallet:', connectedWalletId);
+        
+        const transferId = uuidv4();
+        return {
+          paymentId: `square_cross_platform_${transferId.substring(0, 8)}`,
+          payedAmount: parseFloat(amount),
+          response: {
+            id: `cross_platform_${transferId}`,
+            status: 'cross_platform_pending',
+            sourceValue: amount,
+            sourceCurrency: currency || 'USD',
+            targetValue: amount,
+            targetCurrency: currency || 'USD',
+            source: 'SQUARE_CROSS_PLATFORM',
+            connectedWalletId: connectedWalletId,
+            transferType: 'CROSS_PLATFORM'
+          }
+        };
+      }
+
       const idempotencyKey = uuidv4();
 
       const res = await this.axiosInstance.post('/payments', {

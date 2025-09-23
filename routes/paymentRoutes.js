@@ -15,9 +15,13 @@ payPalCallbackAuthorize,
   getBankAccounts,
   generateClientToken,
   createRecipientToken,
-  getAllTransactions,
   changeTransactionStatus,
 } = require('../controllers/paymentController');
+
+const {
+  getAllTransactions,
+  getTransactionStats,
+} = require('../simple-endpoints');
 const authMiddleware = require('../middlewares/authMiddleware');
 const tryCatch = require('../middlewares/tryCatch');
 
@@ -99,6 +103,7 @@ router.post(
 router.post('/create-recipient-token/wise', authMiddleware, tryCatch(createRecipientToken));
 
 router.get('/admin/transactions', getAllTransactions);
+router.get('/admin/transactions/stats', getTransactionStats);
 router.patch('/change-status/:id', changeTransactionStatus);
 
 module.exports = router;

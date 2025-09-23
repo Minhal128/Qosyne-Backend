@@ -24,28 +24,34 @@ class TransactionService {
       let fromWallet, toWallet;
       
       // Try to find by database ID first, then by walletId
-      if (!isNaN(parseInt(fromWalletId))) {
+      const fromWalletDbId = parseInt(fromWalletId);
+      if (!isNaN(fromWalletDbId) && fromWalletDbId > 0) {
         fromWallet = await prisma.connectedWallets.findFirst({
-          where: { id: parseInt(fromWalletId), userId, isActive: true }
+          where: { id: fromWalletDbId, userId, isActive: true },
+          include: { users: true }
         });
       }
       
       if (!fromWallet) {
         fromWallet = await prisma.connectedWallets.findFirst({
-          where: { walletId: fromWalletId, userId, isActive: true }
+          where: { walletId: fromWalletId, userId, isActive: true },
+          include: { users: true }
         });
       }
 
       // For toWallet, it could be from any user
-      if (!isNaN(parseInt(toWalletId))) {
+      const toWalletDbId = parseInt(toWalletId);
+      if (!isNaN(toWalletDbId) && toWalletDbId > 0) {
         toWallet = await prisma.connectedWallets.findFirst({
-          where: { id: parseInt(toWalletId), isActive: true }
+          where: { id: toWalletDbId, isActive: true },
+          include: { users: true }
         });
       }
       
       if (!toWallet) {
         toWallet = await prisma.connectedWallets.findFirst({
-          where: { walletId: toWalletId, isActive: true }
+          where: { walletId: toWalletId, isActive: true },
+          include: { users: true }
         });
       }
 
@@ -78,7 +84,8 @@ class TransactionService {
             toWalletId,
             description,
             requiresRapyd
-          })
+          }),
+          updatedAt: new Date()
         }
       });
 
@@ -86,7 +93,7 @@ class TransactionService {
       await prisma.transactionRecipients.create({
         data: {
           transactionId: transaction.id,
-          recipientWalletId: toWalletId,
+          recipientWalletId: toWallet.walletId, // Use the actual walletId string, not the database ID
           recipientName: toWallet.fullName,
           recipientEmail: toWallet.accountEmail
         }
@@ -118,7 +125,10 @@ class TransactionService {
       // Update status to processing
       await prisma.transactions.update({
         where: { id: transaction.id },
-        data: { status: this.transactionStatuses.PROCESSING }
+        data: { 
+          status: this.transactionStatuses.PROCESSING,
+          updatedAt: new Date()
+        }
       });
       
       console.log('Processing cross-wallet transfer via Rapyd:', {
@@ -128,41 +138,60 @@ class TransactionService {
         amount: transaction.amount
       });
 
-      // For testing purposes, simulate Rapyd processing
-      // In production, this would use real Rapyd API calls
-      try {
-        // Simulate Rapyd payment creation
-        const mockPayment = {
-          id: `payment_${Date.now()}`,
-          status: 'CLO',
-          amount: transaction.amount
-        };
+      // Build payment method and beneficiary data
+      const paymentMethodType = rapydService.getPaymentMethodType(fromWallet.provider);
+      const paymentMethodFields = rapydService.getPaymentMethodFields(fromWallet);
+      const beneficiaryType = rapydService.getBeneficiaryType(toWallet.provider);
+      const beneficiaryFields = rapydService.getBeneficiaryFields(toWallet);
 
-        // Simulate Rapyd payout creation
-        const mockPayout = {
-          id: `payout_${Date.now()}`,
-          status: 'Completed',
-          amount: transaction.amount - transaction.fees
-        };
+      // 1) Create payment from source wallet (Rapyd sandbox)
+      const payment = await rapydService.createPayment({
+        amount: Number(transaction.amount),
+        currency: transaction.currency,
+        paymentMethod: paymentMethodType,
+        description: `Cross-wallet transfer payment for transaction ${transaction.id}`,
+        metadata: {
+          transactionId: transaction.id,
+          fromProvider: fromWallet.provider,
+          toProvider: toWallet.provider
+        },
+        userId: transaction.userId
+      });
 
-        // Update transaction with mock Rapyd IDs and mark as completed immediately
-        const updatedTransaction = await prisma.transactions.update({
-          where: { id: transaction.id },
-          data: {
-            rapydPaymentId: mockPayment.id,
-            rapydPayoutId: mockPayout.id,
-            status: this.transactionStatuses.COMPLETED,
-            completedAt: new Date()
-          }
-        });
+      // 2) Create payout to destination wallet/account (Rapyd sandbox)
+      const payoutAmount = Math.max(Number(transaction.amount) - Number(transaction.fees), 0);
+      const payout = await rapydService.createPayout({
+        amount: payoutAmount,
+        currency: transaction.currency,
+        beneficiary: {
+          type: beneficiaryType,
+          fields: beneficiaryFields
+        },
+        description: `Cross-wallet payout for transaction ${transaction.id}`,
+        metadata: {
+          transactionId: transaction.id,
+          fromProvider: fromWallet.provider,
+          toProvider: toWallet.provider
+        },
+        userId: transaction.userId
+      });
 
-        console.log(`Transaction ${transaction.id} completed via Rapyd simulation`);
-        return updatedTransaction;
+      // 3) Persist Rapyd IDs and keep status as PROCESSING; webhooks will mark completion
+      const updatedTransaction = await prisma.transactions.update({
+        where: { id: transaction.id },
+        data: {
+          rapydPaymentId: String(payment.id),
+          rapydPayoutId: String(payout.id),
+          // Preserve PROCESSING status; webhook will set COMPLETED/FAILED
+          updatedAt: new Date()
+        }
+      });
 
-      } catch (rapydError) {
-        console.error('Rapyd processing error:', rapydError);
-        throw new Error('Cross-wallet transfer processing failed');
-      }
+      console.log(`Transaction ${transaction.id} processed via Rapyd sandbox`, {
+        rapydPaymentId: updatedTransaction.rapydPaymentId,
+        rapydPayoutId: updatedTransaction.rapydPayoutId
+      });
+      return updatedTransaction;
 
     } catch (error) {
       console.error('Error in processRapydTransfer:', error);
@@ -170,7 +199,8 @@ class TransactionService {
         where: { id: transaction.id },
         data: {
           status: this.transactionStatuses.FAILED,
-          failureReason: error.message
+          failureReason: error.message,
+          updatedAt: new Date()
         }
       });
       throw error;
@@ -184,7 +214,10 @@ class TransactionService {
       
       await prisma.transactions.update({
         where: { id: transaction.id },
-        data: { status: this.transactionStatuses.PROCESSING }
+        data: { 
+          status: this.transactionStatuses.PROCESSING,
+          updatedAt: new Date()
+        }
       });
 
       switch (provider) {
@@ -200,7 +233,8 @@ class TransactionService {
         where: { id: transaction.id },
         data: {
           status: this.transactionStatuses.FAILED,
-          failureReason: error.message
+          failureReason: error.message,
+          updatedAt: new Date()
         }
       });
       throw error;
@@ -217,7 +251,8 @@ class TransactionService {
       where: { id: transaction.id },
       data: {
         status: this.transactionStatuses.COMPLETED,
-        completedAt: new Date()
+        completedAt: new Date(),
+        updatedAt: new Date()
       }
     });
 
@@ -234,7 +269,8 @@ class TransactionService {
       where: { id: transaction.id },
       data: {
         status: this.transactionStatuses.COMPLETED,
-        completedAt: new Date()
+        completedAt: new Date(),
+        updatedAt: new Date()
       }
     });
 
@@ -265,8 +301,8 @@ class TransactionService {
           userId: userId 
         },
         include: {
-          connectedWallet: true,
-          transactionRecipient: true
+          connectedWallets: true,
+          transactionRecipients: true
         }
       });
 
@@ -283,8 +319,8 @@ class TransactionService {
         provider: transaction.provider,
         type: transaction.type,
         fees: transaction.fees,
-        fromWallet: transaction.connectedWallet,
-        toWallet: transaction.transactionRecipient,
+        fromWallet: transaction.connectedWallets,
+        toWallet: transaction.transactionRecipients,
         metadata: transaction.metadata ? JSON.parse(transaction.metadata) : {},
         createdAt: transaction.createdAt,
         completedAt: transaction.completedAt,
@@ -368,7 +404,10 @@ class TransactionService {
 
       await prisma.transactions.update({
         where: { id: transaction.id },
-        data: { status: this.transactionStatuses.CANCELLED }
+        data: { 
+          status: this.transactionStatuses.CANCELLED,
+          updatedAt: new Date()
+        }
       });
 
       return { message: 'Transaction cancelled successfully' };

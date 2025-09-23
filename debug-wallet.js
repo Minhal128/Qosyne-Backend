@@ -42,33 +42,39 @@ async function debugWallet() {
       console.log('---');
     });
     
-    // Check for the specific wallet ID you're trying to use
-    const targetWalletId = 'googlepay_4_1758098315531';
-    const targetWallet = await prisma.connectedWallets.findFirst({
-      where: {
-        walletId: targetWalletId
-      },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true
+    // Check for the specific wallet IDs you're trying to use
+    const targetWalletIds = [
+      'venmo_venmo_1758098479102_6111',
+      'wise_account_6fbc207e'
+    ];
+    
+    for (const targetWalletId of targetWalletIds) {
+      const targetWallet = await prisma.connectedWallets.findFirst({
+        where: {
+          walletId: targetWalletId
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
           }
         }
+      });
+      
+      console.log(`\n🎯 Searching for wallet ID: ${targetWalletId}`);
+      if (targetWallet) {
+        console.log('✅ Wallet found!');
+        console.log(`  Belongs to user: ${targetWallet.user.name} (ID: ${targetWallet.userId})`);
+        console.log(`  User email: ${targetWallet.user.email}`);
+        console.log(`  Is Active: ${targetWallet.isActive}`);
+        console.log(`  Provider: ${targetWallet.provider}`);
+        console.log(`  Account Email: ${targetWallet.accountEmail}`);
+      } else {
+        console.log('❌ Wallet not found in database');
       }
-    });
-    
-    console.log(`\n🎯 Searching for wallet ID: ${targetWalletId}`);
-    if (targetWallet) {
-      console.log('✅ Wallet found!');
-      console.log(`  Belongs to user: ${targetWallet.user.name} (ID: ${targetWallet.userId})`);
-      console.log(`  User email: ${targetWallet.user.email}`);
-      console.log(`  Is Active: ${targetWallet.isActive}`);
-      console.log(`  Provider: ${targetWallet.provider}`);
-      console.log(`  Account Email: ${targetWallet.accountEmail}`);
-    } else {
-      console.log('❌ Wallet not found in database');
     }
     
     // Show wallet ownership breakdown

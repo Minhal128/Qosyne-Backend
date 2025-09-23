@@ -5,6 +5,14 @@ const transactionService = require('./transactionService');
 
 const prisma = new PrismaClient();
 
+// Import monitoring service for real-time tracking
+let monitoringService;
+try {
+  monitoringService = require('./realTimeMonitoringService');
+} catch (error) {
+  console.warn('Real-time monitoring service not available');
+}
+
 class WebhookService {
   constructor() {
     this.webhookSecrets = {
@@ -19,6 +27,12 @@ class WebhookService {
 
   verifySignature(provider, signature, payload) {
     try {
+      // Allow relaxed verification in sandbox/dev if explicitly enabled
+      if (process.env.WEBHOOK_VERIFY_RELAXED === 'true') {
+        console.warn('Webhook signature verification relaxed - accepting all signatures for testing', { provider });
+        return true;
+      }
+
       const secret = this.webhookSecrets[provider];
       if (!secret) {
         console.warn('No webhook secret configured for provider:', { provider });
@@ -95,6 +109,11 @@ class WebhookService {
     try {
       const { event_type, resource } = event;
       
+      // Record webhook event for monitoring
+      if (monitoringService) {
+        monitoringService.recordWebhookEvent('PAYPAL', event_type, true);
+      }
+      
       switch (event_type) {
         case 'PAYMENT.CAPTURE.COMPLETED':
           await this.handlePaymentCompleted('PAYPAL', resource);
@@ -110,6 +129,10 @@ class WebhookService {
           console.log('Unhandled PayPal webhook event:', { event_type });
       }
     } catch (error) {
+      // Record failed webhook
+      if (monitoringService) {
+        monitoringService.recordWebhookEvent('PAYPAL', event.event_type, false);
+      }
       console.error('PayPal webhook handling failed:', { event, error: error.message });
       throw error;
     }

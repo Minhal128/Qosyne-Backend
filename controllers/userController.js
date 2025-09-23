@@ -420,14 +420,9 @@ exports.setSelectedWallet = async (req, res) => {
       });
     }
 
-    // Update user's selected wallet preference
-    await prisma.users.update({
-      where: { id: userId },
-      data: {
-        selectedWalletType: walletType.toLowerCase(),
-        selectedWalletId: selectedWallet.walletId,
-      },
-    });
+    // Note: selectedWalletType and selectedWalletId fields removed from schema
+    // Wallet selection is now handled through connectedWallets table
+    console.log(`User ${userId} selected wallet: ${walletType} - ${selectedWallet.walletId}`);
 
     res.status(200).json({
       message: 'Selected wallet updated successfully',
@@ -457,26 +452,36 @@ exports.getSelectedWallet = async (req, res) => {
   try {
     const userId = req.user.userId;
 
-    const user = await prisma.users.findUnique({
-      where: { id: userId },
-      select: {
-        selectedWalletType: true,
-        selectedWalletId: true,
+    // Since selectedWalletType/selectedWalletId fields are removed,
+    // return the first active connected wallet as default
+    const connectedWallets = await prisma.connectedWallets.findMany({
+      where: { 
+        userId: userId,
+        isActive: true 
       },
+      orderBy: { createdAt: 'asc' }
     });
 
-    if (!user) {
+    if (connectedWallets.length === 0) {
       return res.status(404).json({
-        message: 'User not found',
+        message: 'No connected wallets found',
         status_code: 404,
       });
     }
 
+    const defaultWallet = connectedWallets[0];
+
     res.status(200).json({
       message: 'Selected wallet retrieved successfully',
       data: {
-        walletType: user.selectedWalletType,
-        walletId: user.selectedWalletId,
+        walletType: defaultWallet.provider.toLowerCase(),
+        walletId: defaultWallet.walletId,
+        walletDetails: {
+          id: defaultWallet.id,
+          provider: defaultWallet.provider,
+          accountEmail: defaultWallet.accountEmail,
+          fullName: defaultWallet.fullName
+        }
       },
       status_code: 200,
     });

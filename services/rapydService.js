@@ -71,10 +71,9 @@ class RapydService {
     try {
       const { amount, currency, paymentMethod, description, metadata, userId } = paymentData;
 
-      // For testing purposes, create a mock payment response
-      // In production, this would make a real Rapyd API call
-      if (!this.secretKey || !this.accessKey) {
-        console.log('Creating mock Rapyd payment for testing');
+      // Check if we have valid Rapyd credentials for real API calls
+      if (!this.secretKey || !this.accessKey || this.secretKey === 'your_rapyd_secret_key' || this.accessKey === 'your_rapyd_access_key') {
+        console.log('Creating mock Rapyd payment for testing - missing or placeholder credentials');
         
         const mockPayment = {
           id: `rapyd_payment_${Date.now()}`,
@@ -146,10 +145,9 @@ class RapydService {
     try {
       const { amount, currency, beneficiary, description, metadata, userId } = payoutData;
 
-      // For testing purposes, create a mock payout response
-      // In production, this would make a real Rapyd API call
-      if (!this.secretKey || !this.accessKey) {
-        console.log('Creating mock Rapyd payout for testing');
+      // Check if we have valid Rapyd credentials for real API calls
+      if (!this.secretKey || !this.accessKey || this.secretKey === 'your_rapyd_secret_key' || this.accessKey === 'your_rapyd_access_key') {
+        console.log('Creating mock Rapyd payout for testing - missing or placeholder credentials');
         
         const mockPayout = {
           id: `rapyd_payout_${Date.now()}`,
@@ -400,6 +398,44 @@ class RapydService {
       });
       throw error;
     }
+  }
+
+  // Helper methods for transaction service integration
+  getPaymentMethodType(provider) {
+    const methodTypes = {
+      PAYPAL: 'paypal_wallet',
+      GOOGLEPAY: 'google_pay',
+      WISE: 'wise_account', 
+      SQUARE: 'square_wallet',
+      VENMO: 'venmo_wallet'
+    };
+    return methodTypes[provider] || 'card_payment';
+  }
+
+  getPaymentMethodFields(wallet) {
+    return {
+      walletId: wallet.walletId,
+      provider: wallet.provider
+    };
+  }
+
+  getBeneficiaryType(provider) {
+    const beneficiaryTypes = {
+      PAYPAL: 'paypal_account',
+      GOOGLEPAY: 'google_pay_account', 
+      WISE: 'wise_account',
+      SQUARE: 'square_account',
+      VENMO: 'venmo_account'
+    };
+    return beneficiaryTypes[provider] || 'bank_account';
+  }
+
+  getBeneficiaryFields(wallet) {
+    return {
+      walletId: wallet.walletId,
+      recipientId: wallet.walletId,
+      provider: wallet.provider
+    };
   }
 }
 

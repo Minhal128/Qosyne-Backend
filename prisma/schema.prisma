@@ -7,216 +7,37 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model users {
-  id               Int      @id @default(autoincrement())
-  name             String
-  email            String   
-  role             Role     @default(USER)
-  isVerified       Boolean  @default(false)
-  isDeleted        Boolean? @default(false)
-  pic              String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  designation      String?   
-  phoneNumber      String?   
-  dateOfBirth      DateTime? 
-  emailNotification Boolean  @default(true)
-  smsNotification   Boolean  @default(true)
-  selectedWalletType String?
-  selectedWalletId   String?
-
-  wallet           Wallet?
-  sentTransactions transactions[] @relation(name: "SentTransactions")
-  connectedWallets connectedWallets[]
-  tokens           tokens[]
-  passwords        passwords[]
-  qrCodes          qrCodes[]
-  contactSupports contactSupports[]
-
-  @@unique([email, isDeleted], map: "email_isDeleted_UNIQUE")
+model Wallet {
+  id           Int            @id @default(autoincrement())
+  userId       Int            @unique
+  balance      Decimal        @default(0.000000000000000000000000000000)
+  users        users          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions transactions[]
 }
 
 model connectedWallets {
-  id            Int     @id @default(autoincrement())
-  userId        Int
-  provider      WalletProvider
-  walletId      String  @unique
-  customerId    String?
-  accountEmail  String
-  fullName      String?
-  username      String?
-  balance       Decimal @default(0.0)
-  currency      String
-  isActive      Boolean @default(true)
-  accessToken   String? @db.Text
-  refreshToken  String? @db.Text
-  lastSync      DateTime?
-  capabilities  String? @db.Text // JSON string of capabilities
-  user          users   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id           Int                       @id @default(autoincrement())
+  userId       Int
+  provider     connectedWallets_provider
+  walletId     String                    @unique
+  customerId   String?
+  accountEmail String
+  fullName     String?
+  username     String?
+  balance      Decimal                   @default(0.000000000000000000000000000000)
+  currency     String
+  isActive     Boolean                   @default(true)
+  accessToken  String?                   @db.Text
+  refreshToken String?                   @db.Text
+  paymentMethodToken String?             @db.Text
+  lastSync     DateTime?
+  capabilities String?                   @db.Text
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime
+  users        users                     @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions transactions[]
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-}
 
-enum WalletProvider {
-  PAYPAL
-  GOOGLEPAY
-  WISE
-  SQUARE
-  VENMO
-  APPLEPAY
-  RAPYD
-  STRIPE
-  BRAINTREE
-}
-
-model tokens {
-  id          Int      @id @default(autoincrement())
-  userId      Int
-  token       String   @unique
-  type        TokenType
-  dateCreated DateTime @default(now())
-  user        users    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, token])
-  @@index([userId])
-}
-
-enum TokenType {
-  OTP
-  PASSWORD
-}
-
-model passwords {
-  id            Int      @id @default(autoincrement())
-  userId        Int
-  password      String
-  dateRequested DateTime @default(now())
-  dateCompleted DateTime?
-  isEnabled     Boolean  @default(true)
-  user          users    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-}
-
-model Wallet {
-  id        Int     @id @default(autoincrement())
-  userId    Int     @unique
-  balance   Decimal @default(0.0)
-  user      users    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  transactions transactions[]
-}
-
-model transactions {
-  id                  Int                  @id @default(autoincrement())
-  userId              Int
-  walletId            Int?
-  connectedWalletId   Int?
-  paymentId           String?              @db.VarChar(100)
-  rapydPaymentId      String?              @db.VarChar(100)
-  rapydPayoutId       String?              @db.VarChar(100)
-  amount              Decimal
-  currency            String
-  provider            WalletProvider
-  type                TransactionType
-  status              TransactionStatus    @default(PENDING)
-  fees                Decimal              @default(0.0)
-  estimatedCompletion DateTime?
-  failureReason       String?              @db.Text
-  metadata            String?              @db.Text // JSON string for additional data
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  completedAt         DateTime?
-
-  sender              users                @relation(name: "SentTransactions", fields: [userId], references: [id])
-  wallet              Wallet?              @relation(fields: [walletId], references: [id])
-  connectedWallet     connectedWallets?    @relation(fields: [connectedWalletId], references: [id])
-
-  transactionRecipient transactionRecipients? @relation("TransactionToRecipient")
-
-  @@index([userId])
-  @@index([status])
-  @@index([createdAt])
-}
-
-model transactionRecipients {
-  id                  Int      @id @default(autoincrement())
-  transactionId       Int      @unique
-  recipientWalletId   String?  @db.VarChar(100)
-  recipientIban       String?  @db.VarChar(100)
-  recipientName       String?  @db.VarChar(255)
-  recipientEmail      String?  @db.VarChar(255)
-  recipientBankName   String?  @db.VarChar(255)
-  recipientAccount    String?  @db.VarChar(255)
-
-  transaction         transactions @relation("TransactionToRecipient", fields: [transactionId], references: [id], onDelete: Cascade)
-
-  @@index([transactionId])
-}
-
-model qrCodes {
-  id          Int      @id @default(autoincrement())
-  userId      Int
-  qrId        String   @unique
-  type        QRCodeType
-  payload     String   @db.Text
-  amount      Decimal?
-  currency    String?
-  description String?
-  status      QRCodeStatus @default(ACTIVE)
-  scanCount   Int      @default(0)
-  lastScanned DateTime?
-  expiresAt   DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  destinationWalletId String?
-
-  user        users    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([qrId])
-  @@index([status])
-}
-
-enum QRCodeType {
-  BANK_DEPOSIT
-  WALLET_CONNECT
-  PAYMENT_REQUEST
-}
-
-enum QRCodeStatus {
-  ACTIVE
-  SCANNED
-  EXPIRED
-  DEACTIVATED
-}
-
-enum TransferType {
-  bank
-  wallet
-}
-
-enum TransactionType {
-  DEPOSIT
-  WITHDRAW
-  TRANSFER
-  EXTERNAL_TRANSFER
-  PEER_TO_PEER
-}
-
-enum TransactionStatus {
-  PENDING
-  PROCESSING
-  COMPLETED
-  FAILED
-  CANCELLED
-}
-
-enum Role {
-  USER
-  BUSINESS
+  @@index([userId], map: "connectedWallets_userId_fkey")
 }
 
 model contactSupports {
@@ -228,8 +49,44 @@ model contactSupports {
   transactionId Int?
   message       String   @db.Text
   createdAt     DateTime @default(now())
+  users         users    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  user          users   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId], map: "contactSupports_userId_fkey")
+}
+
+model passwords {
+  id            Int       @id @default(autoincrement())
+  userId        Int
+  password      String
+  dateRequested DateTime  @default(now())
+  dateCompleted DateTime?
+  isEnabled     Boolean   @default(true)
+  users         users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model qrCodes {
+  id                  Int            @id @default(autoincrement())
+  userId              Int
+  qrId                String         @unique
+  type                qrCodes_type
+  payload             String         @db.Text
+  amount              Decimal?
+  currency            String?
+  description         String?
+  status              qrCodes_status @default(ACTIVE)
+  scanCount           Int            @default(0)
+  lastScanned         DateTime?
+  expiresAt           DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime
+  destinationWalletId String?
+  users               users          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([qrId])
+  @@index([status])
+  @@index([userId])
 }
 
 model taxSettings {
@@ -237,5 +94,156 @@ model taxSettings {
   revenueStreamCost String
   qosneWalletFee    String
   createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  updatedAt         DateTime
+}
+
+model tokens {
+  id          Int         @id @default(autoincrement())
+  userId      Int
+  token       String      @unique
+  type        tokens_type
+  dateCreated DateTime    @default(now())
+  users       users       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, token])
+  @@index([userId])
+}
+
+model transactionRecipients {
+  id                Int          @id @default(autoincrement())
+  transactionId     Int          @unique
+  recipientWalletId String?      @db.VarChar(100)
+  recipientIban     String?      @db.VarChar(100)
+  recipientName     String?      @db.VarChar(255)
+  recipientEmail    String?      @db.VarChar(255)
+  recipientBankName String?      @db.VarChar(255)
+  recipientAccount  String?      @db.VarChar(255)
+  transactions      transactions @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([transactionId])
+}
+
+model transactions {
+  id                    Int                    @id @default(autoincrement())
+  userId                Int
+  walletId              Int?
+  connectedWalletId     Int?
+  paymentId             String?                @db.VarChar(100)
+  rapydPaymentId        String?                @db.VarChar(100)
+  rapydPayoutId         String?                @db.VarChar(100)
+  amount                Decimal
+  currency              String
+  provider              transactions_provider
+  type                  transactions_type
+  status                transactions_status    @default(PENDING)
+  fees                  Decimal                @default(0.000000000000000000000000000000)
+  estimatedCompletion   DateTime?
+  failureReason         String?                @db.Text
+  metadata              String?                @db.Text
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime
+  completedAt           DateTime?
+  transactionRecipients transactionRecipients?
+  connectedWallets      connectedWallets?      @relation(fields: [connectedWalletId], references: [id])
+  users                 users                  @relation(fields: [userId], references: [id])
+  Wallet                Wallet?                @relation(fields: [walletId], references: [id])
+
+  @@index([connectedWalletId], map: "transactions_connectedWalletId_fkey")
+  @@index([createdAt])
+  @@index([status])
+  @@index([userId])
+  @@index([walletId], map: "transactions_walletId_fkey")
+}
+
+model users {
+  id                 Int                @id @default(autoincrement())
+  name               String
+  email              String
+  role               users_role         @default(USER)
+  isVerified         Boolean            @default(false)
+  isDeleted          Boolean?           @default(false)
+  pic                String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime
+  designation        String?
+  phoneNumber        String?
+  dateOfBirth        DateTime?
+  emailNotification  Boolean            @default(true)
+  smsNotification    Boolean            @default(true)
+  selectedWalletId   String?
+  selectedWalletType String?
+  Wallet             Wallet?
+  connectedWallets   connectedWallets[]
+  contactSupports    contactSupports[]
+  passwords          passwords[]
+  qrCodes            qrCodes[]
+  tokens             tokens[]
+  transactions       transactions[]
+
+  @@unique([email, isDeleted], map: "email_isDeleted_UNIQUE")
+}
+
+enum connectedWallets_provider {
+  PAYPAL
+  GOOGLEPAY
+  WISE
+  SQUARE
+  VENMO
+  APPLEPAY
+  RAPYD
+  STRIPE
+  BRAINTREE
+  QOSYNE
+}
+
+enum qrCodes_type {
+  BANK_DEPOSIT
+  WALLET_CONNECT
+  PAYMENT_REQUEST
+}
+
+enum tokens_type {
+  OTP
+  PASSWORD
+}
+
+enum users_role {
+  USER
+  BUSINESS
+}
+
+enum qrCodes_status {
+  ACTIVE
+  SCANNED
+  EXPIRED
+  DEACTIVATED
+}
+
+enum transactions_provider {
+  PAYPAL
+  GOOGLEPAY
+  WISE
+  SQUARE
+  VENMO
+  APPLEPAY
+  RAPYD
+  STRIPE
+  BRAINTREE
+  QOSYNE
+}
+
+enum transactions_type {
+  DEPOSIT
+  WITHDRAW
+  TRANSFER
+  EXTERNAL_TRANSFER
+  PEER_TO_PEER
+}
+
+enum transactions_status {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
 }

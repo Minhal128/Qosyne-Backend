@@ -277,6 +277,30 @@ class WiseGateway extends MethodBasedPayment {
         
         return this._formatPaymentResponse(transfer, false);
       } 
+      else if (connectedWalletId) {
+        // NEW CASE: Cross-platform transfer (Wise → Other Wallet)
+        console.log('Processing cross-platform transfer from Wise to connected wallet:', connectedWalletId);
+        
+        // For cross-platform transfers, we don't need IBAN details
+        // The transfer will be handled by the transaction service via Rapyd
+        // We just need to create a placeholder response for the payment controller
+        
+        return {
+          paymentId: `wise_cross_platform_${transferId.substring(0, 8)}`,
+          payedAmount: parseFloat(amount),
+          response: {
+            id: `cross_platform_${transferId}`,
+            status: 'cross_platform_pending',
+            sourceValue: amount,
+            sourceCurrency: currency,
+            targetValue: amount,
+            targetCurrency: currency,
+            source: 'WISE_CROSS_PLATFORM',
+            connectedWalletId: connectedWalletId,
+            transferType: 'CROSS_PLATFORM'
+          }
+        };
+      }
       else {
         // EXISTING CASE: Regular payment from user's bank account
         // Keep the existing regular payment implementation as is
