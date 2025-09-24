@@ -16,26 +16,26 @@ model Wallet {
 }
 
 model connectedWallets {
-  id           Int                       @id @default(autoincrement())
-  userId       Int
-  provider     connectedWallets_provider
-  walletId     String                    @unique
-  customerId   String?
-  accountEmail String
-  fullName     String?
-  username     String?
-  balance      Decimal                   @default(0.000000000000000000000000000000)
-  currency     String
-  isActive     Boolean                   @default(true)
-  accessToken  String?                   @db.Text
-  refreshToken String?                   @db.Text
-  paymentMethodToken String?             @db.Text
-  lastSync     DateTime?
-  capabilities String?                   @db.Text
-  createdAt    DateTime                  @default(now())
-  updatedAt    DateTime
-  users        users                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  transactions transactions[]
+  id                 Int                       @id @default(autoincrement())
+  userId             Int
+  provider           connectedWallets_provider
+  walletId           String                    @unique
+  customerId         String?
+  accountEmail       String
+  fullName           String?
+  username           String?
+  balance            Decimal                   @default(0.000000000000000000000000000000)
+  currency           String
+  isActive           Boolean                   @default(true)
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime
+  accessToken        String?                   @db.Text
+  refreshToken       String?                   @db.Text
+  paymentMethodToken String?                   @db.Text
+  lastSync           DateTime?                 @db.DateTime(0)
+  capabilities       String?                   @db.Text
+  users              users                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions       transactions[]
 
   @@index([userId], map: "connectedWallets_userId_fkey")
 }
@@ -63,29 +63,6 @@ model passwords {
   isEnabled     Boolean   @default(true)
   users         users     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId])
-}
-
-model qrCodes {
-  id                  Int            @id @default(autoincrement())
-  userId              Int
-  qrId                String         @unique
-  type                qrCodes_type
-  payload             String         @db.Text
-  amount              Decimal?
-  currency            String?
-  description         String?
-  status              qrCodes_status @default(ACTIVE)
-  scanCount           Int            @default(0)
-  lastScanned         DateTime?
-  expiresAt           DateTime?
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime
-  destinationWalletId String?
-  users               users          @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([qrId])
-  @@index([status])
   @@index([userId])
 }
 
@@ -129,28 +106,18 @@ model transactions {
   walletId              Int?
   connectedWalletId     Int?
   paymentId             String?                @db.VarChar(100)
-  rapydPaymentId        String?                @db.VarChar(100)
-  rapydPayoutId         String?                @db.VarChar(100)
   amount                Decimal
   currency              String
   provider              transactions_provider
   type                  transactions_type
   status                transactions_status    @default(PENDING)
-  fees                  Decimal                @default(0.000000000000000000000000000000)
-  estimatedCompletion   DateTime?
-  failureReason         String?                @db.Text
-  metadata              String?                @db.Text
   createdAt             DateTime               @default(now())
-  updatedAt             DateTime
-  completedAt           DateTime?
   transactionRecipients transactionRecipients?
   connectedWallets      connectedWallets?      @relation(fields: [connectedWalletId], references: [id])
   users                 users                  @relation(fields: [userId], references: [id])
   Wallet                Wallet?                @relation(fields: [walletId], references: [id])
 
   @@index([connectedWalletId], map: "transactions_connectedWalletId_fkey")
-  @@index([createdAt])
-  @@index([status])
   @@index([userId])
   @@index([walletId], map: "transactions_walletId_fkey")
 }
@@ -176,7 +143,6 @@ model users {
   connectedWallets   connectedWallets[]
   contactSupports    contactSupports[]
   passwords          passwords[]
-  qrCodes            qrCodes[]
   tokens             tokens[]
   transactions       transactions[]
 
@@ -185,21 +151,17 @@ model users {
 
 enum connectedWallets_provider {
   PAYPAL
+  STRIPE
+  PAYONEER
+  ZELLE
+  CASHAPP
+  VENMO
+  APPLEPAY
   GOOGLEPAY
   WISE
   SQUARE
-  VENMO
-  APPLEPAY
-  RAPYD
-  STRIPE
-  BRAINTREE
   QOSYNE
-}
-
-enum qrCodes_type {
-  BANK_DEPOSIT
-  WALLET_CONNECT
-  PAYMENT_REQUEST
+  RAPYD
 }
 
 enum tokens_type {
@@ -212,24 +174,19 @@ enum users_role {
   BUSINESS
 }
 
-enum qrCodes_status {
-  ACTIVE
-  SCANNED
-  EXPIRED
-  DEACTIVATED
-}
-
 enum transactions_provider {
   PAYPAL
+  STRIPE
+  PAYONEER
+  ZELLE
+  CASHAPP
+  VENMO
+  APPLEPAY
   GOOGLEPAY
   WISE
   SQUARE
-  VENMO
-  APPLEPAY
-  RAPYD
-  STRIPE
-  BRAINTREE
   QOSYNE
+  RAPYD
 }
 
 enum transactions_type {
@@ -237,7 +194,6 @@ enum transactions_type {
   WITHDRAW
   TRANSFER
   EXTERNAL_TRANSFER
-  PEER_TO_PEER
 }
 
 enum transactions_status {

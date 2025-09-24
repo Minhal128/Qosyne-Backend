@@ -23,73 +23,81 @@ const isValidPassword = (password) => password.length >= 6;
 // Register User
 // Register User (Updated to Create Wallet)
 exports.register = async (req, res) => {
-  const { name, email, password, role } = req.body;
+  try {
+    const { name, email, password, role } = req.body;
 
-  if (!name || !email || !password)
-    return res.status(400).json({
-      error: 'Name, email, and password are required',
-      status_code: 400,
-    });
-  if (!isValidEmail(email))
-    return res.status(400).json({
-      error: 'Invalid email format',
-      status_code: 400,
-    });
-  if (!isValidPassword(password))
-    return res.status(400).json({
-      error: 'Password must be at least 6 characters long',
-      status_code: 400,
-    });
+    if (!name || !email || !password)
+      return res.status(400).json({
+        error: 'Name, email, and password are required',
+        status_code: 400,
+      });
+    if (!isValidEmail(email))
+      return res.status(400).json({
+        error: 'Invalid email format',
+        status_code: 400,
+      });
+    if (!isValidPassword(password))
+      return res.status(400).json({
+        error: 'Password must be at least 6 characters long',
+        status_code: 400,
+      });
 
-  const existingUser = await prisma.users.findUnique({
-    where: {
-      email_isDeleted: {
-        email: email,
+    const existingUser = await prisma.users.findUnique({
+      where: {
+        email_isDeleted: {
+          email: email,
+          isDeleted: false,
+        },
+      },
+    });
+    if (existingUser)
+      return res.status(400).json({
+        error: 'Email already exists',
+        status_code: 400,
+      });
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = await prisma.users.create({
+      data: {
+        name,
+        email,
+        role: role || 'USER',
+        isVerified: false,
         isDeleted: false,
       },
-    },
-  });
-  if (existingUser)
-    return res.status(400).json({
-      error: 'Email already exists',
-      status_code: 400,
     });
 
-  const hashedPassword = await bcrypt.hash(password, 10);
-  const user = await prisma.users.create({
-    data: {
-      name,
-      email,
-      role: role || 'USER',
-      isVerified: false,
-      isDeleted: false,
-    },
-  });
+    // ✅ Automatically Create Wallet for New User
+    await prisma.wallet.create({
+      data: { userId: user.id, balance: 0.0 },
+    });
 
-  // ✅ Automatically Create Wallet for New User
-  await prisma.wallet.create({
-    data: { userId: user.id, balance: 0.0 },
-  });
+    // Store password in passwords table
+    await prisma.passwords.create({
+      data: {
+        userId: user.id,
+        password: hashedPassword,
+        dateRequested: new Date(),
+        isEnabled: true,
+      },
+    });
 
-  // Store password in passwords table
-  await prisma.passwords.create({
-    data: {
-      userId: user.id,
-      password: hashedPassword,
-      dateRequested: new Date(),
-      isEnabled: true,
-    },
-  });
+    // Note: Qosyne wallet creation removed - users will connect external wallets instead
 
-  // Note: Qosyne wallet creation removed - users will connect external wallets instead
+    await sendOtp(user.id, email, 'OTP');
 
-  await sendOtp(user.id, email, 'OTP');
-
-  res.status(201).json({
-    message: 'User registered successfully. Please verify your email.',
-    data: user,
-    status_code: 201,
-  });
+    res.status(201).json({
+      message: 'User registered successfully. Please verify your email.',
+      data: user,
+      status_code: 201,
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({
+      error: error.message || 'Registration failed',
+      status_code: 500,
+    });
+  }
 };
 
 // Login User

@@ -108,7 +108,7 @@ exports.getAvailableWalletsForTransfer = async (req, res) => {
 exports.connectWallet = async (req, res) => {
   try {
     const userId = req.user.userId;
-    const { provider, authCode, accessToken } = req.body;
+    const { provider, authCode, accessToken, connectionType, identifier, bankDetails } = req.body;
 
     console.log(`Attempting to connect ${provider} wallet for user ${userId}`);
 
@@ -119,10 +119,24 @@ exports.connectWallet = async (req, res) => {
       });
     }
 
+    // For Google Pay, validate bank details if provided
+    if (provider.toLowerCase() === 'googlepay' && bankDetails) {
+      const { accountNumber, routingNumber, accountHolderName, bankName, accountType } = bankDetails;
+      if (!accountNumber || !routingNumber || !accountHolderName || !bankName || !accountType) {
+        return res.status(400).json({
+          success: false,
+          error: 'Complete bank account details are required for Google Pay connection'
+        });
+      }
+    }
+
     const wallet = await walletService.connectWallet(userId, {
       provider,
       authCode,
-      accessToken
+      accessToken,
+      connectionType,
+      identifier,
+      bankDetails
     });
 
     console.log(`Successfully connected ${provider} wallet for user ${userId}:`, {

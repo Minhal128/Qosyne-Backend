@@ -37,11 +37,11 @@ exports.processStripePayment = async (req, res) => {
 
   await prisma.transactions.create({
     data: {
-      senderId: userId,
-      receiverId: userId,
+      userId: userId,
       walletId: wallet.id,
       amount: parseFloat(amount),
       currency,
+      provider: 'QOSYNE',
       type: 'DEPOSIT',
       status: 'COMPLETED',
     },
@@ -375,7 +375,6 @@ exports.createOrder = async (req, res) => {
         paymentId: orderID,
         connectedWalletId: connectedWalletId,
         provider: paymentMethod.toUpperCase(),
-        updatedAt: new Date(),
       },
     });
 
@@ -498,7 +497,6 @@ exports.authorizePayment = async (req, res) => {
         connectedWalletId: parseInt(connectedWalletId),
         provider: paymentMethod.toUpperCase(),
         paymentId,
-        updatedAt: new Date(),
       },
     });
 
@@ -562,7 +560,6 @@ exports.paymentCapture = async (req, res) => {
       connectedWalletId: parseInt(connectedWalletId),
       provider: paymentMethod.toUpperCase(),
       paymentId,
-      updatedAt: new Date(),
     },
   });
   // captureResponse contains PayPal's details about the capture.

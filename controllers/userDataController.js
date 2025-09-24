@@ -12,9 +12,33 @@ exports.getUserTransactions = async (req, res) => {
 
     const transactions = await prisma.transactions.findMany({
       where: { userId: numericUserId },
-      include: {
-        Wallet: true,
-        connectedWallets: true,
+      select: {
+        id: true,
+        userId: true,
+        walletId: true,
+        connectedWalletId: true,
+        paymentId: true,
+        amount: true,
+        currency: true,
+        provider: true,
+        type: true,
+        status: true,
+        createdAt: true,
+        Wallet: {
+          select: {
+            id: true,
+            userId: true,
+            balance: true
+          }
+        },
+        connectedWallets: {
+          select: {
+            id: true,
+            provider: true,
+            walletId: true,
+            accountEmail: true
+          }
+        }
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -51,6 +75,16 @@ exports.getUserConnectedWallets = async (req, res) => {
     const wallets = await prisma.connectedWallets.findMany({
       where: { userId: numericUserId },
       orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        provider: true,
+        walletId: true,
+        balance: true,
+        currency: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true
+      }
     });
 
     const data = wallets.map((w) => ({
