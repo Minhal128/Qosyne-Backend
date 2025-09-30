@@ -184,13 +184,34 @@ const createHtmlAlertResponse = (message, isSuccess = false) => {
 };
 
 exports.payPalCallback = async (req, res) => {
-  const { code, state, paymentMethod } = req.query;
-  if (!code) {
+  // CRITICAL: Log everything in the request query for debugging
+  console.log("PayPal Callback Received. Full Query:", req.query);
+  console.log("PayPal Callback Received. Full URL:", req.url);
+  console.log("PayPal Callback Received. Method:", req.method);
+  
+  const { code, state, paymentMethod, error, error_description } = req.query;
+  
+  // Check if PayPal sent an error instead of a code
+  if (error) {
+    console.error("PayPal returned an error:", error, error_description);
     return res.status(400).json({
-      error: 'Authorization code missing',
+      error: `PayPal error: ${error}`,
+      description: error_description,
       status_code: 400,
     });
   }
+  
+  if (!code) {
+    console.error("Error: Authorization code not found in callback query.");
+    console.log("Available query parameters:", Object.keys(req.query));
+    return res.status(400).json({
+      error: 'Authorization code missing',
+      status_code: 400,
+      received_params: Object.keys(req.query)
+    });
+  }
+  
+  console.log("Authorization Code received:", code);
 
   const paymentGateway = paymentFactory('paypal');
 
@@ -225,6 +246,7 @@ exports.payPalCallback = async (req, res) => {
       username: userInfo.email,
       currency: userInfo.address.country,
       isActive: true,
+      updatedAt: new Date(),
     },
   });
 
@@ -237,14 +259,34 @@ exports.payPalCallback = async (req, res) => {
 
 exports.payPalCallbackAuthorize = async (req, res) => {
   try {
-    const { code, state } = req.query;
-
-    if (!state) {
+    // CRITICAL: Log everything in the request query for debugging
+    console.log("PayPal Callback Authorize Received. Full Query:", req.query);
+    console.log("PayPal Callback Authorize Received. Full URL:", req.url);
+    console.log("PayPal Callback Authorize Received. Method:", req.method);
+    
+    const { code, state, error, error_description } = req.query;
+    
+    // Check if PayPal sent an error instead of a code
+    if (error) {
+      console.error("PayPal returned an error in authorize callback:", error, error_description);
       return res.status(400).json({
-        error: 'State parameter missing',
+        error: `PayPal error: ${error}`,
+        description: error_description,
         status_code: 400,
       });
     }
+
+    if (!state) {
+      console.error("Error: State parameter missing in authorize callback.");
+      console.log("Available query parameters:", Object.keys(req.query));
+      return res.status(400).json({
+        error: 'State parameter missing',
+        status_code: 400,
+        received_params: Object.keys(req.query)
+      });
+    }
+    
+    console.log("Authorization Code received in authorize callback:", code);
 
     // Decode the state
     const decodedState = JSON.parse(decodeURIComponent(state));
@@ -630,6 +672,7 @@ exports.attachPaymentMethod = async (req, res) => {
           },
         },
         currency: customerDetails?.currency ?? 'USD',
+      updatedAt: new Date(),
       },
     });
 
@@ -655,12 +698,12 @@ exports.getTransactions = async (req, res) => {
     const userId = req.user.userId;
 
     // Fetch all columns, plus related wallet/connectedWallet/sender
-    const transactions = await prisma.transactions.findMany({
+  const transactions = await prisma.transactions.findMany({
       where: { userId },
       include: {
-        wallet: true,
-        connectedWallet: true,
-        sender: true, // If you also want basic user info
+        Wallet: true,
+        connectedWallets: true,
+        users: true, // basic user info
       },
     });
 
@@ -673,9 +716,9 @@ exports.getTransactions = async (req, res) => {
       };
 
       // Format provider in connectedWallet if present
-      if (formattedTransaction.connectedWallet && formattedTransaction.connectedWallet.provider) {
-        formattedTransaction.connectedWallet = {
-          ...formattedTransaction.connectedWallet,
+      if (formattedTransaction.connectedWallets && formattedTransaction.connectedWallets.provider) {
+        formattedTransaction.connectedWallets = {
+          ...formattedTransaction.connectedWallets,
           provider: formatProviderName(formattedTransaction.connectedWallet.provider)
         };
       }
@@ -905,6 +948,32 @@ exports.createRecipientToken = async (req, res) => {
   } catch (error) {
     console.error('Error creating recipient token:', error);
     return res.status(500).json({ error: error.message });
+  }
+};
+
+// Get Wise Profiles
+exports.getWiseProfiles = async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    console.log(`Fetching Wise profiles for user: ${userId}`);
+
+    const wiseGateway = new WiseGateway();
+    const profilesResult = await wiseGateway.getProfiles();
+
+    return res.status(200).json({
+      message: profilesResult.summary,
+      data: {
+        profiles: profilesResult.data,
+        count: profilesResult.count
+      },
+      status_code: 200,
+    });
+  } catch (error) {
+    console.error('Error fetching Wise profiles:', error);
+    return res.status(500).json({ 
+      error: error.message,
+      status_code: 500 
+    });
   }
 };
 

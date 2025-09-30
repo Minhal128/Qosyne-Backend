@@ -64,6 +64,7 @@ exports.register = async (req, res) => {
         role: role || 'USER',
         isVerified: false,
         isDeleted: false,
+        updatedAt: new Date(),
       },
     });
 
@@ -521,6 +522,7 @@ exports.googleLogin = async (req, res) => {
         role: 'USER',
         isVerified: true, // Google has already verified the email
         isDeleted: false,
+        updatedAt: new Date(),
       },
     });
 

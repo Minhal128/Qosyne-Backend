@@ -15,6 +15,7 @@ payPalCallbackAuthorize,
   getBankAccounts,
   generateClientToken,
   createRecipientToken,
+  getWiseProfiles,
   changeTransactionStatus,
 } = require('../controllers/paymentController');
 
@@ -63,6 +64,7 @@ router.post(
 
 router.get('/transactions', authMiddleware, getTransactions);
 router.get('/generateClientToken', generateClientToken);
+router.get('/braintree/client-token', authMiddleware, generateClientToken);
 router.get('/transactions-recipients', authMiddleware, getRecipients);
 
 router.get('/paypal/success', (req, res) => {
@@ -101,6 +103,7 @@ router.post(
 );
 
 router.post('/create-recipient-token/wise', authMiddleware, tryCatch(createRecipientToken));
+router.get('/wise/profiles', authMiddleware, tryCatch(getWiseProfiles));
 
 router.get('/admin/transactions', getAllTransactions);
 router.get('/admin/transactions/stats', getTransactionStats);

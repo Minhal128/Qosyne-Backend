@@ -17,6 +17,7 @@ const qrDisplayRoutes = require('./routes/qrDisplayRoutes');
 const healthRoutes = require('./routes/healthRoutes');
 const rapydWalletRoutes = require('./routes/rapydWalletRoutes');
 const realTimeRoutes = require('./routes/realTimeRoutes');
+const wiseDirectRoutes = require('./routes/wiseDirectRoutes');
 
 const prisma = new PrismaClient({
   log: ['query', 'info', 'warn', 'error'], // Enables Prisma query logging for debugging
@@ -70,6 +71,8 @@ app.use('/api', userDataRoutes);
 app.use('/api/rapyd', rapydWalletRoutes);
 // Real-time monitoring and dashboard routes
 app.use('/api/realtime', realTimeRoutes);
+// Direct Wise API routes
+app.use('/api', wiseDirectRoutes);
 
 // Root route (must be before QR display routes)
 app.get('/', async (req, res) => {

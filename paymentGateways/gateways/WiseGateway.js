@@ -15,6 +15,31 @@ class WiseGateway extends MethodBasedPayment {
     this.walletAccountId = process.env.WISE_WALLET_ACCOUNT_ID;
   }
 
+  // 🟢 Get All Profiles Associated with Wise Account
+  async getProfiles() {
+    try {
+      const response = await axios.get(
+        `${this.apiBaseUrl}/v1/profiles`,
+        { 
+          headers: {
+            ...this._getHeaders(),
+            'User-Agent': 'Qosyne/1.0',
+          }
+        }
+      );
+
+      return {
+        success: true,
+        data: response.data,
+        summary: `Successfully retrieved ${response.data.length} profile${response.data.length === 1 ? '' : 's'}`,
+        count: response.data.length
+      };
+    } catch (error) {
+      console.error('Error fetching Wise profiles:', error.response?.data || error);
+      throw new Error(`Failed to fetch profiles: ${this._parseError(error)}`);
+    }
+  }
+
   // 🟢 Fetch All Bank Accounts Linked to Wise Profile
   async fetchBankAccounts() {
     const response = await axios.get(
@@ -32,31 +57,55 @@ class WiseGateway extends MethodBasedPayment {
   }
 
   // Attach a bank account - generate a token instead of storing full details
-  async attachBankAccount({ userId, bankAccount }) {
+  async attachBankAccount({ userId, bankAccount, profileId }) {
     try {
-      console.log('Attaching Wise bank account:', { 
-        accountHolder: bankAccount.account_holder_name,
-        country: bankAccount.country
+      console.log('Attaching Wise wallet:', { 
+        userId,
+        profileId: profileId || this.profileId,
+        accountHolder: bankAccount?.account_holder_name
       });
       
-      // In production, we would:
-      // 1. Create a recipient account in Wise API
-      // 2. Store the recipient ID as the token
-      // 3. Not store the full bank details in our database
-      
-      // For now, we'll simulate token creation
-      const accountToken = `wise_account_${crypto.randomUUID().substring(0, 8)}`;
-      
-      return {
-        attachedPaymentMethodId: accountToken,
-        customerDetails: {
-          name: bankAccount.account_holder_name,
-          currency: bankAccount.currency || 'EUR',
-          country: bankAccount.country,
-          // We're not storing the actual IBAN/BIC, just a reference
-          lastDigits: bankAccount.iban.slice(-4)
+      // If profileId is provided, use it to connect the user's Wise profile
+      if (profileId) {
+        // Fetch the specific profile to get user details
+        const profiles = await this.getProfiles();
+        const selectedProfile = profiles.data.find(p => p.id.toString() === profileId.toString());
+        
+        if (!selectedProfile) {
+          throw new Error('Profile not found');
         }
-      };
+        
+        const accountToken = `wise_profile_${profileId}_${crypto.randomUUID().substring(0, 8)}`;
+        
+        return {
+          attachedPaymentMethodId: accountToken,
+          customerDetails: {
+            name: `${selectedProfile.details.firstName} ${selectedProfile.details.lastName}`,
+            email: selectedProfile.details.email || 'wise@user.com',
+            currency: 'EUR', // Default currency, can be enhanced
+            profileId: selectedProfile.id,
+            profileType: selectedProfile.type,
+            phone: selectedProfile.details.phoneNumber
+          }
+        };
+      }
+      
+      // Legacy bank account attachment (existing functionality)
+      if (bankAccount) {
+        const accountToken = `wise_account_${crypto.randomUUID().substring(0, 8)}`;
+        
+        return {
+          attachedPaymentMethodId: accountToken,
+          customerDetails: {
+            name: bankAccount.account_holder_name,
+            currency: bankAccount.currency || 'EUR',
+            country: bankAccount.country,
+            lastDigits: bankAccount.iban?.slice(-4)
+          }
+        };
+      }
+      
+      throw new Error('Either profileId or bankAccount details are required');
     } catch (error) {
       console.error('Error attaching Wise account:', error);
       throw new Error(`Failed to attach Wise account: ${error.message}`);

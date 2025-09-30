@@ -478,9 +478,9 @@ class WalletService {
         throw new Error('Invalid credentials format. Expected JSON with connection data');
       }
 
-      const { connectionType, identifier, country } = connectionData;
-      if (!connectionType || !identifier) {
-        throw new Error('Connection type and identifier are required');
+      const { swift_number, country } = connectionData;
+      if (!swift_number) {
+        throw new Error('Swift number is required');
       }
 
       // Check if we have valid Wise API credentials
@@ -512,10 +512,10 @@ class WalletService {
         const primaryBalance = balances.find(b => b.currency === (country === 'GB' ? 'GBP' : country === 'EU' ? 'EUR' : 'USD')) || balances[0];
 
         return {
-          walletId: `wise_${userId}_${profile.id}`, // Include userId for uniqueness
-          accountEmail: profile.details?.email || `${identifier}@wise.com`,
+          walletId: `wise_${userId}_${profile.id}`,
+          accountEmail: profile.details?.email || `${swift_number}@wise.com`,
           fullName: `${profile.details?.firstName || 'Wise'} ${profile.details?.lastName || 'User'}`,
-          username: identifier,
+          username: swift_number,
           accessToken: this.providers.WISE.apiToken,
           refreshToken: null,
           currency: primaryBalance?.currency || 'USD',
@@ -525,16 +525,16 @@ class WalletService {
         // If API call fails, create a connection with the provided data
         const wiseUser = {
           id: this.providers.WISE.profileId,
-          email: connectionType === 'email' ? identifier : `${identifier}@wise.com`,
-          firstName: identifier.split('@')[0] || identifier,
+          email: `${swift_number}@wise.com`,
+          firstName: swift_number,
           lastName: 'User'
         };
 
         return {
-          walletId: `wise_${userId}_${wiseUser.id}`, // Include userId for uniqueness
+          walletId: `wise_${userId}_${wiseUser.id}`,
           accountEmail: wiseUser.email,
           fullName: `${wiseUser.firstName} ${wiseUser.lastName}`,
-          username: identifier,
+          username: swift_number,
           accessToken: this.providers.WISE.apiToken,
           refreshToken: null,
           currency: country === 'GB' ? 'GBP' : country === 'EU' ? 'EUR' : 'USD',
@@ -562,9 +562,9 @@ class WalletService {
         connectionData = { identifier: credentials };
       }
 
-      const { identifier } = connectionData;
-      if (!identifier) {
-        throw new Error('Square identifier is required');
+      const { name, swift } = connectionData;
+      if (!name || !swift) {
+        throw new Error('Square name and swift are required');
       }
 
       // Use Square API to get merchant info
@@ -593,9 +593,9 @@ class WalletService {
 
         return {
           walletId: `square_${merchant.id}`,
-          accountEmail: merchant.business_name ? `${merchant.business_name.toLowerCase().replace(/\s+/g, '')}@square.com` : `merchant_${merchant.id}@square.com`,
-          fullName: merchant.business_name || `Square Merchant ${merchant.id}`,
-          username: identifier,
+          accountEmail: `${swift.toLowerCase()}@square.com`,
+          fullName: name,
+          username: name,
           accessToken: this.providers.SQUARE.accessToken,
           refreshToken: null,
           currency: location.currency || 'USD',
@@ -607,9 +607,9 @@ class WalletService {
         
         return {
           walletId: `square_${merchantId}`,
-          accountEmail: `${identifier}@square.com`,
-          fullName: `Square User ${identifier}`,
-          username: identifier,
+          accountEmail: `${swift.toLowerCase()}@square.com`,
+          fullName: name,
+          username: name,
           accessToken: this.providers.SQUARE.accessToken,
           refreshToken: null,
           currency: 'USD',

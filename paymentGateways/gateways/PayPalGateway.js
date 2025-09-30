@@ -144,8 +144,9 @@ class PayPalGateway {
         },
       ],
       application_context: {
-        return_url: `${process.env.PAYPAL_REDIRECT_URI}/authorize/?state=${state}`, // Your return endpoint
-        brand_name: 'Your Brand',
+        return_url: `https://qosynebackend.vercel.app/api/payment/paypal/callback/authorize?state=${state}`,
+        cancel_url: 'https://qosynebackend.vercel.app/api/payment/paypal/failure',
+        brand_name: 'Qosyne',
         user_action: 'PAY_NOW',
       },
     };

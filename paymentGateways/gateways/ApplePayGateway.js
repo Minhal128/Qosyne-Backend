@@ -63,7 +63,7 @@ class ApplePayGateway extends MethodBasedPayment {
               },
               experience_context: {
                 payment_method_preference: "IMMEDIATE_PAYMENT_REQUIRED",
-                brand_name: "Your Brand Name",
+                brand_name: "Qosyne",
                 locale: "en-US",
                 landing_page: "NO_PREFERENCE",
                 shipping_preference: "NO_SHIPPING",
