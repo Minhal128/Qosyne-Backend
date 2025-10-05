@@ -18,6 +18,7 @@ const healthRoutes = require('./routes/healthRoutes');
 const rapydWalletRoutes = require('./routes/rapydWalletRoutes');
 const realTimeRoutes = require('./routes/realTimeRoutes');
 const wiseDirectRoutes = require('./routes/wiseDirectRoutes');
+const rapydRoutes = require('./routes/rapydRoutes');
 
 const prisma = new PrismaClient({
   log: ['query', 'info', 'warn', 'error'], // Enables Prisma query logging for debugging
@@ -25,7 +26,7 @@ const prisma = new PrismaClient({
 
 const app = express();
 
-// Define the allowed origins for CORS
+// Define the allowed origins for CORS - Allow all origins for public access
 const allowedOrigins = [
   'https://qosyncefrontend.vercel.app',
   'http://localhost:3000',
@@ -33,15 +34,12 @@ const allowedOrigins = [
   'https://qosyne.vercel.app'
 ];
 
-// Configure CORS options
+// Configure CORS options - Allow all origins for public Venmo demo
 const corsOptions = {
-  origin: function (origin, callback) {
-    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  }
+  origin: true, // Allow all origins for public access
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 };
 
 app.use(cors(corsOptions));
@@ -73,6 +71,8 @@ app.use('/api/rapyd', rapydWalletRoutes);
 app.use('/api/realtime', realTimeRoutes);
 // Direct Wise API routes
 app.use('/api', wiseDirectRoutes);
+// Rapyd-powered money transfer routes
+app.use('/api/rapyd', rapydRoutes);
 
 // Root route (must be before QR display routes)
 app.get('/', async (req, res) => {

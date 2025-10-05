@@ -289,7 +289,7 @@ exports.getAllUsers = async (req, res) => {
       smsNotification: true,
       createdAt: true,
       updatedAt: true,
-      wallet: {
+      Wallet: {
         select: {
           balance: true,
         },

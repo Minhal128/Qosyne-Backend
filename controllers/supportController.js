@@ -90,7 +90,7 @@ exports.getAllSupportRequests = async (req, res) => {
   const requests = await prisma.contactSupports.findMany({
     orderBy: { createdAt: 'desc' },
     include: {
-      user: {
+      users: {
         select: { id: true, name: true, email: true }
       }
     }

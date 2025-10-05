@@ -14,7 +14,7 @@ class RapydWalletMapper {
     try {
       const connectedWallet = await this.prisma.connectedWallets.findUnique({
         where: { id: connectedWalletId },
-        include: { user: true }
+        include: { users: true }
       });
 
       if (!connectedWallet) {
@@ -26,9 +26,9 @@ class RapydWalletMapper {
 
       // Create Rapyd e-wallet
       const rapydWalletData = {
-        first_name: userDetails.firstName || connectedWallet.user.name?.split(' ')[0] || 'User',
-        last_name: userDetails.lastName || connectedWallet.user.name?.split(' ').slice(1).join(' ') || connectedWallet.userId.toString(),
-        email: userDetails.email || connectedWallet.user.email,
+        first_name: userDetails.firstName || connectedWallet.users.name?.split(' ')[0] || 'User',
+        last_name: userDetails.lastName || connectedWallet.users.name?.split(' ').slice(1).join(' ') || connectedWallet.userId.toString(),
+        email: userDetails.email || connectedWallet.users.email,
         ewallet_reference_id: rapydReferenceId,
         type: 'person',
         metadata: {
@@ -39,9 +39,9 @@ class RapydWalletMapper {
         },
         contact: {
           phone_number: userDetails.phoneNumber || '+1234567890', // Default or user provided
-          email: userDetails.email || connectedWallet.user.email,
-          first_name: userDetails.firstName || connectedWallet.user.name?.split(' ')[0] || 'User',
-          last_name: userDetails.lastName || connectedWallet.user.name?.split(' ').slice(1).join(' ') || connectedWallet.userId.toString(),
+          email: userDetails.email || connectedWallet.users.email,
+          first_name: userDetails.firstName || connectedWallet.users.name?.split(' ')[0] || 'User',
+          last_name: userDetails.lastName || connectedWallet.users.name?.split(' ').slice(1).join(' ') || connectedWallet.userId.toString(),
           country: userDetails.country || 'US'
         }
       };
@@ -112,9 +112,9 @@ class RapydWalletMapper {
       console.log(`🔄 No Rapyd wallet found for connected wallet ${connectedWalletId}, creating one...`);
       
       const rapydWallet = await this.createRapydWalletForConnectedWallet(connectedWalletId, {
-        email: connectedWallet.user.email,
-        firstName: connectedWallet.user.name?.split(' ')[0] || 'User',
-        lastName: connectedWallet.user.name?.split(' ').slice(1).join(' ') || connectedWallet.userId.toString()
+        email: connectedWallet.users.email,
+        firstName: connectedWallet.users.name?.split(' ')[0] || 'User',
+        lastName: connectedWallet.users.name?.split(' ').slice(1).join(' ') || connectedWallet.userId.toString()
       });
 
       return rapydWallet.rapydReferenceId;
@@ -148,19 +148,26 @@ class RapydWalletMapper {
    */
   async getWalletForTransfer(walletId, userId = null) {
     try {
-      const connectedWallet = await this.prisma.connectedWallets.findFirst({
-        where: { 
-          id: walletId,
-          ...(userId && { userId }),
-          isActive: true 
-        },
-        include: { user: true }
-      });
-
-      if (!connectedWallet) {
-        throw new Error(`Wallet ${walletId} not found or not accessible`);
+      // Handle both database ID and walletId string
+      let whereClause = { isActive: true };
+      
+      if (userId) {
+        whereClause.userId = userId;
+      }
+      
+      // Try to parse as database ID first
+      const parsedId = parseInt(walletId);
+      if (!isNaN(parsedId) && parsedId > 0) {
+        whereClause.id = parsedId;
+      } else {
+        // If not a valid integer, search by walletId string
+        whereClause.walletId = walletId;
       }
 
+      const connectedWallet = await this.prisma.connectedWallets.findFirst({
+        where: whereClause,
+        include: { users: true }
+      });
       const rapydReferenceId = await this.getRapydWalletId(walletId);
 
       return {
@@ -172,7 +179,7 @@ class RapydWalletMapper {
         accountEmail: connectedWallet.accountEmail,
         fullName: connectedWallet.fullName,
         currency: connectedWallet.currency,
-        user: connectedWallet.user
+        user: connectedWallet.users
       };
 
     } catch (error) {

@@ -2,6 +2,7 @@ const { v4: uuidv4 } = require('uuid');
 const { PrismaClient } = require('@prisma/client');
 const rapydService = require('./rapydService');
 const walletService = require('./walletService');
+const feeCollectionService = require('./feeCollectionService');
 
 const prisma = new PrismaClient();
 
@@ -251,10 +252,12 @@ class TransactionService {
       where: { id: transaction.id },
       data: {
         status: this.transactionStatuses.COMPLETED,
-        completedAt: new Date(),
         updatedAt: new Date()
       }
     });
+
+    // Collect admin fee after successful completion
+    await this.collectAdminFeeAsync(updatedTransaction);
 
     console.log(`PayPal transaction ${transaction.id} completed`);
     return updatedTransaction;
@@ -269,10 +272,12 @@ class TransactionService {
       where: { id: transaction.id },
       data: {
         status: this.transactionStatuses.COMPLETED,
-        completedAt: new Date(),
         updatedAt: new Date()
       }
     });
+
+    // Collect admin fee after successful completion
+    await this.collectAdminFeeAsync(updatedTransaction);
 
     console.log(`Venmo transaction ${transaction.id} completed`);
     return updatedTransaction;
@@ -337,9 +342,15 @@ class TransactionService {
       const { page = 1, limit = 20, status, provider } = filters;
       const skip = (page - 1) * limit;
       
-      const where = { userId };
+      const where = { 
+        userId: {
+          equals: userId  // Strict user filtering
+        }
+      };
       if (status) where.status = status;
       if (provider) where.provider = provider;
+
+      console.log('🔍 transactionService.getUserTransactions for userId:', userId);
 
       const [transactions, total] = await Promise.all([
         prisma.transactions.findMany({
@@ -354,6 +365,9 @@ class TransactionService {
         }),
         prisma.transactions.count({ where })
       ]);
+
+      console.log(`🔍 transactionService found ${transactions.length} transactions for userId ${userId}`);
+      console.log('🔍 Transaction userIds:', transactions.map(t => t.userId));
 
       return {
         data: transactions.map(t => ({
@@ -575,6 +589,47 @@ class TransactionService {
       recipientId: wallet.walletId,
       provider: wallet.provider
     };
+  }
+
+  /**
+   * Collect admin fee asynchronously without blocking the main transaction
+   * @param {Object} transaction - The completed transaction
+   */
+  async collectAdminFeeAsync(transaction) {
+    // Run fee collection in background without blocking
+    setImmediate(async () => {
+      try {
+        await feeCollectionService.collectAdminFee(transaction);
+      } catch (error) {
+        console.error(`Background fee collection failed for transaction ${transaction.id}:`, error);
+      }
+    });
+  }
+
+  /**
+   * Mark transaction as completed and collect admin fee
+   * This method should be called when a transaction is completed via webhook or other means
+   */
+  async completeTransaction(transactionId, completionData = {}) {
+    try {
+      const updatedTransaction = await prisma.transactions.update({
+        where: { id: transactionId },
+        data: {
+          status: this.transactionStatuses.COMPLETED,
+          updatedAt: new Date(),
+          ...completionData
+        }
+      });
+
+      // Collect admin fee after successful completion
+      await this.collectAdminFeeAsync(updatedTransaction);
+
+      console.log(`Transaction ${transactionId} completed and fee collection initiated`);
+      return updatedTransaction;
+    } catch (error) {
+      console.error(`Error completing transaction ${transactionId}:`, error);
+      throw error;
+    }
   }
 }
 

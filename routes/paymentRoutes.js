@@ -39,6 +39,64 @@ router.post('/add-payment-method', authMiddleware, tryCatch(addPaymentMethod));
 router.get('/paypal-token',  tryCatch(getPayPalToken));
 router.get('/paypal-auth-url', authMiddleware, tryCatch(getPayPalAuthUrl))
 router.get('/paypal/callback', tryCatch(payPalCallback));
+router.post('/paypal/callback', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { accessToken, refreshToken, userInfo } = req.body;
+
+    // Check if PayPal already connected
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+    
+    const existingPayPal = await prisma.connectedWallets.findFirst({
+      where: {
+        userId: userId,
+        provider: 'PAYPAL',
+        isActive: true
+      }
+    });
+
+    if (existingPayPal) {
+      return res.status(400).json({
+        message: 'PayPal wallet is already connected',
+        status_code: 400
+      });
+    }
+
+    // Create PayPal wallet connection
+    const connectedWallet = await prisma.connectedWallets.create({
+      data: {
+        userId: userId,
+        provider: 'PAYPAL',
+        walletId: userInfo.payerInfo.payerId,
+        accountEmail: userInfo.payerInfo.email,
+        fullName: `${userInfo.payerInfo.firstName} ${userInfo.payerInfo.lastName}`,
+        currency: 'USD',
+        isActive: true,
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        updatedAt: new Date()
+      }
+    });
+
+    return res.status(201).json({
+      message: 'PayPal wallet connected successfully',
+      data: {
+        walletId: connectedWallet.id,
+        provider: 'PayPal',
+        email: userInfo.payerInfo.email
+      },
+      status_code: 201
+    });
+
+  } catch (error) {
+    console.error('❌ PayPal callback error:', error);
+    return res.status(500).json({
+      message: error.message,
+      status_code: 500
+    });
+  }
+});
 router.get('/paypal/callback/authorize', tryCatch(payPalCallbackAuthorize));
 router.post(
   '/create-order/:paymentMethod',
@@ -108,5 +166,144 @@ router.get('/wise/profiles', authMiddleware, tryCatch(getWiseProfiles));
 router.get('/admin/transactions', getAllTransactions);
 router.get('/admin/transactions/stats', getTransactionStats);
 router.patch('/change-status/:id', changeTransactionStatus);
+
+// Simple Braintree Venmo endpoints for public access
+router.get('/client_token', async (req, res) => {
+  try {
+    // Use the existing VenmoGateway class that's already configured
+    const VenmoGateway = require('../paymentGateways/gateways/VenmoGateway');
+    const venmoGateway = new VenmoGateway();
+    
+    const response = await venmoGateway.gateway.clientToken.generate({});
+    
+    console.log('✅ Successfully generated client token for Venmo');
+    res.json({ clientToken: response.clientToken });
+  } catch (error) {
+    console.error('❌ Error generating client token:', error);
+    res.status(500).json({ error: 'Failed to generate client token' });
+  }
+});
+
+router.post('/checkout', async (req, res) => {
+  try {
+    const { paymentMethodNonce, amount } = req.body;
+    
+    if (!paymentMethodNonce || !amount) {
+      return res.status(400).json({ error: 'Payment method nonce and amount are required' });
+    }
+
+    // Use the existing VenmoGateway class
+    const VenmoGateway = require('../paymentGateways/gateways/VenmoGateway');
+    const venmoGateway = new VenmoGateway();
+
+    const result = await venmoGateway.gateway.transaction.sale({
+      amount: amount,
+      paymentMethodNonce: paymentMethodNonce,
+      options: { submitForSettlement: true },
+    });
+
+    if (result.success) {
+      console.log('✅ Payment processed successfully:', result.transaction.id);
+      res.json({
+        success: true,
+        transaction: {
+          id: result.transaction.id,
+          amount: result.transaction.amount,
+          status: result.transaction.status,
+          type: result.transaction.type,
+          createdAt: result.transaction.createdAt
+        }
+      });
+    } else {
+      console.log('❌ Payment failed:', result.message);
+      res.status(400).json({
+        success: false,
+        error: result.message
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error processing checkout:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to process payment' 
+    });
+  }
+});
+
+// PayPal OAuth Connect Routes
+router.get('/paypal/connect', (req, res) => {
+  try {
+    const queryParams = new URLSearchParams({
+      client_id: process.env.PAYPAL_CLIENT_ID,
+      response_type: 'code',
+      scope: 'openid email profile',
+      redirect_uri: process.env.PAYPAL_REDIRECT_URI,
+      state: 'random_state_string' // Add state for security
+    });
+
+    const paypalAuthUrl = `https://www.sandbox.paypal.com/connect/?${queryParams.toString()}`;
+    console.log('✅ Generated PayPal OAuth URL:', paypalAuthUrl);
+    
+    res.json({ url: paypalAuthUrl });
+  } catch (error) {
+    console.error('❌ Error generating PayPal OAuth URL:', error);
+    res.status(500).json({ error: 'Failed to generate PayPal OAuth URL' });
+  }
+});
+
+// PayPal OAuth Callback Route
+router.post('/paypal/callback', async (req, res) => {
+  const { code } = req.body;
+
+  try {
+    console.log('🔄 Processing PayPal OAuth callback with code:', code);
+    
+    const auth = Buffer.from(
+      `${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_CLIENT_SECRET}`
+    ).toString('base64');
+
+    // Exchange code for access token
+    const tokenResponse = await axios.post(
+      process.env.PAYPAL_TOKEN_URL,
+      new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+      }).toString(),
+      {
+        headers: {
+          Authorization: `Basic ${auth}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      }
+    );
+
+    console.log('✅ Got PayPal access token');
+
+    // Get user info
+    const userInfoResponse = await axios.get(
+      'https://api-m.sandbox.paypal.com/v1/identity/openidconnect/userinfo/?schema=openid',
+      {
+        headers: {
+          Authorization: `Bearer ${tokenResponse.data.access_token}`,
+        },
+      }
+    );
+
+    console.log('✅ Got PayPal user info:', userInfoResponse.data);
+
+    res.json({
+      success: true,
+      access_token: tokenResponse.data.access_token,
+      user: userInfoResponse.data,
+    });
+  } catch (error) {
+    console.error('❌ PayPal OAuth callback error:', error.response?.data || error);
+    res.status(400).json({ 
+      success: false, 
+      error: 'PayPal OAuth failed',
+      details: error.response?.data || error.message 
+    });
+  }
+});
 
 module.exports = router;

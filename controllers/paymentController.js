@@ -13,6 +13,7 @@ const VenmoGateway = require('../paymentGateways/gateways/VenmoGateway');
 const prisma = new PrismaClient();
 const GooglePayGateway = require('../paymentGateways/gateways/GooglePayGateway');
 const WiseGateway = require('../paymentGateways/gateways/WiseGateway');
+const feeCollectionService = require('../services/feeCollectionService');
 
 //  Process Payment via Stripe (Now Uses JWT userId)
 exports.processStripePayment = async (req, res) => {
@@ -35,7 +36,7 @@ exports.processStripePayment = async (req, res) => {
     create: { userId, balance: parseFloat(amount) },
   });
 
-  await prisma.transactions.create({
+  const transaction = await prisma.transactions.create({
     data: {
       userId: userId,
       walletId: wallet.id,
@@ -45,6 +46,15 @@ exports.processStripePayment = async (req, res) => {
       type: 'DEPOSIT',
       status: 'COMPLETED',
     },
+  });
+
+  // Collect admin fee asynchronously
+  setImmediate(async () => {
+    try {
+      await feeCollectionService.collectAdminFee(transaction);
+    } catch (error) {
+      console.error(`Fee collection failed for Stripe transaction ${transaction.id}:`, error);
+    }
   });
 
   res.json({ message: 'Payment successful', balance: wallet.balance });
@@ -525,6 +535,27 @@ exports.authorizePayment = async (req, res) => {
     // console.log('response', response);
 
     // Record a COMPLETED transaction
+    console.log('🔍 Creating transaction for userId:', userId);
+    console.log('🔍 Transaction data:', { userId, amount: payedAmount, connectedWalletId });
+    
+    // VALIDATE: Ensure the connected wallet belongs to this user
+    if (connectedWalletId) {
+      const walletOwner = await prisma.connectedWallets.findFirst({
+        where: { 
+          id: parseInt(connectedWalletId),
+          userId: userId  // Must belong to the same user
+        }
+      });
+      
+      if (!walletOwner) {
+        console.error('❌ SECURITY VIOLATION: User', userId, 'trying to use wallet', connectedWalletId, 'that does not belong to them');
+        return res.status(403).json({
+          error: 'Unauthorized wallet access',
+          status_code: 403
+        });
+      }
+    }
+    
     const newTransaction = await prisma.transactions.create({
       data: {
         userId: userId,
@@ -540,6 +571,15 @@ exports.authorizePayment = async (req, res) => {
         provider: paymentMethod.toUpperCase(),
         paymentId,
       },
+    });
+
+    // Collect admin fee asynchronously
+    setImmediate(async () => {
+      try {
+        await feeCollectionService.collectAdminFee(newTransaction);
+      } catch (error) {
+        console.error(`Fee collection failed for transaction ${newTransaction.id}:`, error);
+      }
     });
 
     await prisma.transactionRecipients.create({
@@ -660,19 +700,15 @@ exports.attachPaymentMethod = async (req, res) => {
     // 🟢 Insert to connectedWallets table
     const wallet = await prisma.connectedWallets.create({
       data: {
+        userId: userId, // Direct field assignment
         provider: paymentMethod.toUpperCase(),
         customerId: customerId ?? null,
         walletId: attachedPaymentMethodId,
         accountEmail: customerDetails?.email ?? 'dummy@gmail.com',
         fullName: customerDetails?.name,
         isActive: true,
-        user: {
-          connect: {
-            id: userId,
-          },
-        },
         currency: customerDetails?.currency ?? 'USD',
-      updatedAt: new Date(),
+        updatedAt: new Date(),
       },
     });
 
@@ -696,15 +732,32 @@ exports.attachPaymentMethod = async (req, res) => {
 exports.getTransactions = async (req, res) => {
     // userId is provided by auth middleware (e.g., JWT)
     const userId = req.user.userId;
+    console.log('🔍 paymentController.getTransactions called for userId:', userId);
 
-    // Fetch all columns, plus related wallet/connectedWallet/sender
+    // Fetch all columns, plus related wallet/connectedWallet/sender - STRICT USER FILTERING
   const transactions = await prisma.transactions.findMany({
-      where: { userId },
+      where: { 
+        userId: {
+          equals: userId  // Explicit equals for strict matching
+        }
+      },
       include: {
         Wallet: true,
         connectedWallets: true,
         users: true, // basic user info
       },
+    });
+
+    console.log(`🔍 paymentController found ${transactions.length} transactions for userId ${userId}`);
+    console.log('🔍 Transaction userIds:', transactions.map(t => t.userId));
+
+    // Set cache-control headers to prevent caching
+    res.set({
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'X-User-ID': userId,
+      'X-Timestamp': new Date().toISOString()
     });
 
     // Format provider names in transactions
@@ -847,9 +900,20 @@ exports.payPalWebhook = async (req, res) => {
 
   switch (event.event_type) {
     case 'PAYMENT.CAPTURE.COMPLETED':
-      await prisma.transactions.update({
+      const completedTransaction = await prisma.transactions.update({
         where: { paymentId: event.resource.id },
-        data: { status: 'COMPLETED' },
+        data: { 
+          status: 'COMPLETED'
+        },
+      });
+      
+      // Collect admin fee asynchronously
+      setImmediate(async () => {
+        try {
+          await feeCollectionService.collectAdminFee(completedTransaction);
+        } catch (error) {
+          console.error(`Fee collection failed for PayPal webhook transaction ${completedTransaction.id}:`, error);
+        }
       });
       break;
     case 'PAYMENT.CAPTURE.DENIED':
@@ -1109,13 +1173,44 @@ exports.getTransactionStats = async (req, res) => {
     // Get total transaction count
     const totalTransactions = await prisma.transactions.count();
 
+    // Calculate average amount
+    const averageAmount = totalTransactions > 0 ? (totalAmountResult._sum.amount || 0) / totalTransactions : 0;
+
+    // Transform data to match frontend expectations
+    const byStatus = statusStats.map(stat => ({
+      status: stat.status,
+      count: stat._count.id,
+      totalAmount: 0 // We don't have amount by status in current query
+    }));
+
+    const byProvider = providerStats.map(stat => ({
+      provider: stat.provider,
+      count: stat._count.id,
+      totalAmount: 0 // We don't have amount by provider in current query
+    }));
+
+    const byType = typeStats.map(stat => ({
+      type: stat.type,
+      count: stat._count.id,
+      totalAmount: 0 // We don't have amount by type in current query
+    }));
+
     res.status(200).json({
       message: 'Transaction statistics fetched successfully',
       data: {
-        totalTransactions,
+        total: {
+          count: totalTransactions,
+          totalAmount: totalAmountResult._sum.amount || 0,
+          averageAmount: averageAmount
+        },
         recentTransactions: recentTransactionsCount,
-        totalAmount: totalAmountResult._sum.amount || 0,
         totalFees: totalFeesResult._sum.fees || 0,
+        byStatus: byStatus,
+        byProvider: byProvider,
+        byType: byType,
+        // Legacy fields for backward compatibility
+        totalTransactions,
+        totalAmount: totalAmountResult._sum.amount || 0,
         statusBreakdown: statusStats.reduce((acc, stat) => {
           acc[stat.status] = stat._count.id;
           return acc;

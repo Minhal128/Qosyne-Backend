@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
+const squareTestController = require('../controllers/squareTestController');
 
 // Health check endpoint
 router.get('/health', async (req, res) => {
@@ -114,5 +115,10 @@ router.get('/health/env', async (req, res) => {
     });
   }
 });
+
+// Square API test endpoints
+router.get('/health/square', squareTestController.testSquareCredentials);
+router.get('/health/square/info', squareTestController.getSquareInfo);
+router.post('/health/square/customer', squareTestController.testCustomerCreation);
 
 module.exports = router;

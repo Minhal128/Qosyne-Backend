@@ -614,6 +614,7 @@ exports.getTransaction = async (req, res) => {
 exports.getUserTransactions = async (req, res) => {
   try {
     const userId = req.user.userId;
+    console.log('🔍 walletIntegrationController.getUserTransactions called for userId:', userId);
     const { page, limit, status, provider } = req.query;
 
     const transactions = await transactionService.getUserTransactions(userId, {
@@ -623,10 +624,21 @@ exports.getUserTransactions = async (req, res) => {
       provider
     });
 
+    // Set cache-control headers to prevent caching
+    res.set({
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+      'X-User-ID': userId,
+      'X-Timestamp': new Date().toISOString()
+    });
+
     res.status(200).json({
       success: true,
       data: transactions,
-      message: 'User transactions fetched successfully'
+      message: 'User transactions fetched successfully',
+      userId: userId,
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
     console.error('Error fetching user transactions:', error);
