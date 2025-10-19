@@ -191,6 +191,13 @@ exports.disconnectWallet = async (req, res) => {
     const userId = req.user.userId;
     const { walletId } = req.params;
 
+    console.log('🔍 Controller - Disconnect request:', { 
+      userId, 
+      walletId, 
+      userIdType: typeof userId,
+      walletIdType: typeof walletId 
+    });
+
     await walletService.disconnectWallet(userId, walletId);
 
     res.status(200).json({
@@ -198,7 +205,7 @@ exports.disconnectWallet = async (req, res) => {
       message: 'Wallet disconnected successfully'
     });
   } catch (error) {
-    console.error('Error disconnecting wallet:', error);
+    console.error('❌ Controller - Error disconnecting wallet:', error);
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to disconnect wallet'
@@ -433,8 +440,8 @@ exports.initiateTransfer = async (req, res) => {
       // Get dynamic Rapyd wallet reference IDs for both wallets
       console.log('📍 Mapping database wallet IDs to Rapyd reference IDs...');
       
-      const fromWalletDetails = await rapydWalletMapper.getWalletForTransfer(parseInt(fromWalletId), userId);
-      const toWalletDetails = await rapydWalletMapper.getWalletForTransfer(parseInt(toWalletId));
+      const fromWalletDetails = await rapydWalletMapper.getWalletForTransfer(fromWalletId, userId);
+      const toWalletDetails = await rapydWalletMapper.getWalletForTransfer(toWalletId);
       
       console.log(`🔄 From: ${fromWalletDetails.provider} wallet (${fromWalletDetails.rapydReferenceId})`);
       console.log(`🔄 To: ${toWalletDetails.provider} wallet (${toWalletDetails.rapydReferenceId})`);

@@ -1,4 +1,5 @@
 const express = require('express');
+const axios = require('axios');
 const {
   processStripePayment,
   addPaymentMethod,
@@ -29,6 +30,7 @@ const tryCatch = require('../middlewares/tryCatch');
 const router = express.Router();
 
 router.post('/stripe', authMiddleware, tryCatch(processStripePayment));
+router.get('/braintree-token', authMiddleware, tryCatch(generateClientToken));
 router.get(
   '/stripe/bank-accounts/:customerId',
   authMiddleware,
@@ -241,7 +243,7 @@ router.get('/paypal/connect', (req, res) => {
       state: 'random_state_string' // Add state for security
     });
 
-    const paypalAuthUrl = `https://www.sandbox.paypal.com/connect/?${queryParams.toString()}`;
+    const paypalAuthUrl = `https://www.sandbox.paypal.com/signin/authorize?${queryParams.toString()}`;
     console.log('✅ Generated PayPal OAuth URL:', paypalAuthUrl);
     
     res.json({ url: paypalAuthUrl });

@@ -19,6 +19,7 @@ const rapydWalletRoutes = require('./routes/rapydWalletRoutes');
 const realTimeRoutes = require('./routes/realTimeRoutes');
 const wiseDirectRoutes = require('./routes/wiseDirectRoutes');
 const rapydRoutes = require('./routes/rapydRoutes');
+const applePayRoutes = require('./routes/applePayRoutes');
 
 const prisma = new PrismaClient({
   log: ['query', 'info', 'warn', 'error'], // Enables Prisma query logging for debugging
@@ -26,17 +27,39 @@ const prisma = new PrismaClient({
 
 const app = express();
 
-// Define the allowed origins for CORS - Allow all origins for public access
+// Global CORS fallback middleware: reflect request origin when allowed and handle OPTIONS preflight
+// This runs before the cors() package to ensure serverless or proxy setups still respond
 const allowedOrigins = [
+  process.env.FRONTEND_URL || 'http://localhost:3000',
   'https://qosyncefrontend.vercel.app',
-  'http://localhost:3000',
-  'http://localhost:5173',
-  'https://qosyne.vercel.app'
+  'https://qosyne.vercel.app',
 ];
+app.use((req, res, next) => {
+  try {
+    const reqOrigin = req.headers.origin;
+    // If the request origin is allowed, echo it back. Otherwise use the first allowed origin.
+    const originToSet = reqOrigin && allowedOrigins.includes(reqOrigin) ? reqOrigin : allowedOrigins[0];
+    res.header('Access-Control-Allow-Origin', originToSet);
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
+  } catch (e) {
+    // fall back silently
+  }
+  next();
+});
 
-// Configure CORS options - Allow all origins for public Venmo demo
+// Configure CORS options using the allowedOrigins defined above
 const corsOptions = {
-  origin: true, // Allow all origins for public access
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -73,6 +96,7 @@ app.use('/api/realtime', realTimeRoutes);
 app.use('/api', wiseDirectRoutes);
 // Rapyd-powered money transfer routes
 app.use('/api/rapyd', rapydRoutes);
+app.use('/api', applePayRoutes);
 
 // Root route (must be before QR display routes)
 app.get('/', async (req, res) => {

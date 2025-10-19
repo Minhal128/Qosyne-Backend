@@ -14,11 +14,16 @@ class PayPalGateway {
     this.authUrl = process.env.PAYPAL_AUTH_URL;
     this.tokenUrl = process.env.PAYPAL_TOKEN_URL;
 
-    // Decide sandbox vs. production
-    this.paypalBaseUrl =
-      process.env.NODE_ENV === 'production'
-        ? 'https://api-m.paypal.com'
-        : 'https://api-m.sandbox.paypal.com';
+    // Decide PayPal API base URL.
+    // Prefer explicit detection from PAYPAL_AUTH_URL or PAYPAL_TOKEN_URL to avoid relying on NODE_ENV
+    // (Vercel sets NODE_ENV=production which can cause a mismatch when using Sandbox auth URLs).
+    const authUrlLower = (this.authUrl || '').toLowerCase();
+    const tokenUrlLower = (this.tokenUrl || '').toLowerCase();
+    if (authUrlLower.includes('sandbox') || tokenUrlLower.includes('sandbox')) {
+      this.paypalBaseUrl = 'https://api-m.sandbox.paypal.com';
+    } else {
+      this.paypalBaseUrl = 'https://api-m.paypal.com';
+    }
 
     // Base64-encoded "client_id:client_secret"
     this.auth = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString(

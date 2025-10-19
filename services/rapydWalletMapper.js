@@ -148,6 +148,11 @@ class RapydWalletMapper {
    */
   async getWalletForTransfer(walletId, userId = null) {
     try {
+      // Validate walletId is provided
+      if (!walletId || walletId === 'undefined' || walletId === 'null') {
+        throw new Error('Wallet ID is required and cannot be null or undefined');
+      }
+
       // Handle both database ID and walletId string
       let whereClause = { isActive: true };
       
@@ -168,6 +173,11 @@ class RapydWalletMapper {
         where: whereClause,
         include: { users: true }
       });
+
+      if (!connectedWallet) {
+        throw new Error(`Wallet not found for ID: ${walletId}`);
+      }
+
       const rapydReferenceId = await this.getRapydWalletId(walletId);
 
       return {

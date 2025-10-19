@@ -20,7 +20,7 @@ function paymentFactory(gatewayName) {
     case 'wise':
       return new WiseGateway();
     case 'googlepay':
-      return new GooglePayGateway();
+      return new BraintreeGateway();
     case 'venmo':
       return new VenmoGateway();
     case 'applepay':

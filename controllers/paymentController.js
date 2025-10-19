@@ -14,6 +14,8 @@ const prisma = new PrismaClient();
 const GooglePayGateway = require('../paymentGateways/gateways/GooglePayGateway');
 const WiseGateway = require('../paymentGateways/gateways/WiseGateway');
 const feeCollectionService = require('../services/feeCollectionService');
+const { BraintreeClientTokenGenerator } = require('../utils/braintreeClientTokenGenerator');
+const { MockBraintreeClientToken } = require('../utils/mockBraintreeClientToken');
 
 //  Process Payment via Stripe (Now Uses JWT userId)
 exports.processStripePayment = async (req, res) => {
@@ -97,13 +99,23 @@ exports.getPayPalAuthUrl = async (req, res) => {
   // const userId = 2;
   if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
+  // Debug: log masked client id and which PayPal environment we are targeting
+  try {
+    const maskedClientId = PAYPAL_CLIENT_ID ? ('' + PAYPAL_CLIENT_ID).slice(0, Math.max(0, ('' + PAYPAL_CLIENT_ID).length - 4)) + '****' : 'MISSING_CLIENT_ID';
+    const paypalEnv = process.env.NODE_ENV === 'production' ? 'live' : 'sandbox';
+    console.log(`PayPal Auth URL requested by user ${userId} — client=${maskedClientId}, env=${paypalEnv}`);
+  } catch (e) {
+    // ignore logging failures
+  }
+
   // Build the scope and redirect URI with URL encoding
   const scope = encodeURIComponent(
     'openid profile email https://uri.paypal.com/services/paypalattributes',
   );
 
-  // Build the auth URL (note: we're not using flowEntry=static here)
-  const authUrl = `${PAYPAL_AUTH_URL}?client_id=${PAYPAL_CLIENT_ID}&response_type=code&scope=${scope}&redirect_uri=${PAYPAL_REDIRECT_URI}&state=${userId}`;
+  // Build the auth URL — force response_mode=query and URL-encode redirect URI so PayPal returns code via GET
+  const redirect = encodeURIComponent(PAYPAL_REDIRECT_URI);
+  const authUrl = `${PAYPAL_AUTH_URL}?client_id=${PAYPAL_CLIENT_ID}&response_type=code&response_mode=query&scope=${scope}&redirect_uri=${redirect}&state=${userId}`;
   res.status(200).json({
     data: authUrl,
     message: 'PayPal Auth URL generated',
@@ -193,78 +205,163 @@ const createHtmlAlertResponse = (message, isSuccess = false) => {
   return htmlContent;
 };
 
+// Create a small HTML page that posts a message to the opener window and closes the popup.
+const createPopupPostMessageResponse = (type, payload = {}, fallbackUrl) => {
+  const safePayload = JSON.stringify(payload).replace(/</g, '\\u003c');
+  const origin = process.env.FRONTEND_URL || 'http://localhost:3000';
+  return `<!doctype html>
+  <html>
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width,initial-scale=1" />
+      <title>PayPal Connect</title>
+    </head>
+    <body>
+      <script>
+        (function(){
+          try {
+            var payload = ${safePayload};
+            // Attempt to postMessage to opener
+            if (window.opener && !window.opener.closed) {
+              // Use wildcard origin so messages reach the opener in dev and prod environments
+              window.opener.postMessage({ type: '${type}', payload: payload }, '*');
+              // small delay to ensure message is sent
+              setTimeout(function(){ window.close(); }, 300);
+            } else {
+              // If no opener, redirect to fallback URL
+              window.location = '${fallbackUrl || origin + '/paypal/callback?success=false'}';
+            }
+          } catch (e) {
+            console.error('Popup messenger error', e);
+            window.location = '${fallbackUrl || origin + '/paypal/callback?success=false'}';
+          }
+        })();
+      </script>
+    </body>
+  </html>`;
+};
+
 exports.payPalCallback = async (req, res) => {
-  // CRITICAL: Log everything in the request query for debugging
-  console.log("PayPal Callback Received. Full Query:", req.query);
-  console.log("PayPal Callback Received. Full URL:", req.url);
-  console.log("PayPal Callback Received. Method:", req.method);
-  
-  const { code, state, paymentMethod, error, error_description } = req.query;
-  
-  // Check if PayPal sent an error instead of a code
-  if (error) {
-    console.error("PayPal returned an error:", error, error_description);
-    return res.status(400).json({
-      error: `PayPal error: ${error}`,
-      description: error_description,
-      status_code: 400,
+  try {
+    // CRITICAL: Log everything in the request query for debugging
+    console.log("PayPal Callback Received. Full Query:", req.query);
+    console.log("PayPal Callback Received. Full URL:", req.url);
+    console.log("PayPal Callback Received. Method:", req.method);
+    
+    const { code, state, paymentMethod, error, error_description } = req.query;
+    
+    // Check if PayPal sent an error instead of a code
+    if (error) {
+      console.error("PayPal returned an error:", error, error_description);
+      return res.status(400).send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', { error: 'PayPal returned an error', reason: error_description || error }, `${process.env.FRONTEND_URL}/paypal/callback?success=false`));
+    }
+    
+    if (!code) {
+      console.error("Error: Authorization code not found in callback query.");
+      console.log("Available query parameters:", Object.keys(req.query));
+      return res.status(400).send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', { error: 'Authorization code missing', received_params: Object.keys(req.query) }, `${process.env.FRONTEND_URL}/paypal/callback?success=false`));
+    }
+    
+    console.log("Authorization Code received:", code);
+
+    const paymentGateway = paymentFactory('paypal');
+
+    // Exchange the authorization code for a user-specific access token
+    let tokenResponse;
+    try {
+      tokenResponse = await paymentGateway.exchangeAuthorizationCodeForToken(code, PAYPAL_REDIRECT_URI);
+      console.log('🔁 PayPal token exchange response:', tokenResponse);
+    } catch (err) {
+      // Capture PayPal error body if present (safe to log); avoid logging client secret
+      const paypalError = err.response?.data || err.message || err;
+      // Mask client id for logs (do not log secrets)
+      const maskedClientId = PAYPAL_CLIENT_ID ? ('' + PAYPAL_CLIENT_ID).slice(0, Math.max(0, ('' + PAYPAL_CLIENT_ID).length - 4)) + '****' : 'MISSING_CLIENT_ID';
+      console.error('❌ PayPal token exchange failed for client:', maskedClientId);
+      console.error('❌ PayPal token exchange error body:', JSON.stringify(paypalError));
+
+      // Try to extract a helpful message for the frontend
+      let reason = 'Token exchange failed';
+      if (paypalError && typeof paypalError === 'object') {
+        if (paypalError.error_description) reason = paypalError.error_description;
+        else if (paypalError.error) reason = paypalError.error;
+      } else if (typeof paypalError === 'string') {
+        reason = paypalError;
+      }
+
+      // More actionable guidance for the user
+      const guidance = 'Check PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET (use Sandbox creds if testing), and ensure the redirect URI configured in PayPal Developer matches PAYPAL_REDIRECT_URI.';
+
+      // Respond with a small HTML page that posts the error to the opener then closes
+      const errorPayload = { error: 'Token exchange failed', reason, guidance };
+      return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', errorPayload, `${process.env.FRONTEND_URL}/paypal/callback?success=false&error=${encodeURIComponent('Token exchange failed')}&reason=${encodeURIComponent(reason)}`));
+    }
+
+    const userAccessToken = tokenResponse.access_token || tokenResponse.id_token;
+    if (!userAccessToken) {
+      console.error('❌ No user access token received from PayPal token exchange', tokenResponse);
+      return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', { error: 'No access token returned' }, `${process.env.FRONTEND_URL}/paypal/callback?success=false&error=${encodeURIComponent('No access token returned')}`));
+    }
+
+    // Fetch user info from PayPal using the user access token
+    let userInfo;
+    try {
+      userInfo = await paymentGateway.getUserInfo(userAccessToken);
+      console.log('✅ PayPal user info fetched:', userInfo);
+    } catch (err) {
+      console.error('❌ Fetching PayPal user info failed:', err.response?.data || err.message || err);
+      return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', { error: 'Failed to fetch user info' }, `${process.env.FRONTEND_URL}/paypal/callback?success=false&error=${encodeURIComponent('Failed to fetch user info')}`));
+    }
+
+    const userId = parseInt(state, 10);
+    const existingWallet = await prisma.connectedWallets.findUnique({
+      where: { walletId: userInfo.payer_id },
     });
+
+    if (existingWallet) {
+      return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', { error: 'Account already linked' }, `${process.env.FRONTEND_URL}/paypal/callback?success=false&error=This%20PayPal%20account%20is%20already%20linked`));
+    }
+
+    //  Save to DB (with safe currency fallback)
+    try {
+      const currencyFallback = 'USD';
+      let currencyValue = currencyFallback;
+      if (userInfo) {
+        if (userInfo.address && userInfo.address.country) {
+          // Use country as-is only if it's a 3-letter code (some responses use 3-letter currency)
+          currencyValue = userInfo.address.country && userInfo.address.country.length === 3 ? userInfo.address.country : currencyFallback;
+        } else if (userInfo.locale && typeof userInfo.locale === 'string') {
+          // locale like en_US — we avoid mapping and default to USD
+          currencyValue = currencyFallback;
+        }
+      }
+
+      const linkedWallet = await prisma.connectedWallets.create({
+        data: {
+          userId: Number(state),
+          provider: 'PAYPAL',
+          walletId: userInfo.payer_id,
+          accountEmail: userInfo.email,
+          fullName: userInfo.name,
+          username: userInfo.email,
+          currency: currencyValue,
+          isActive: true,
+          updatedAt: new Date(),
+        },
+      });
+
+      // For success case — include the created DB record in the popup payload so the frontend can update immediately
+      const successPayload = { name: userInfo.name, email: userInfo.email, paypalId: userInfo.payer_id, wallet: linkedWallet };
+      return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_SUCCESS', successPayload, `${process.env.FRONTEND_URL}/paypal/callback?success=true&name=${encodeURIComponent(userInfo.name)}&email=${encodeURIComponent(userInfo.email)}&paypalId=${encodeURIComponent(userInfo.payer_id)}`));
+    } catch (dbErr) {
+      console.error('❌ Failed to create connectedWallets record:', dbErr.stack || dbErr);
+      return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', { error: 'DB create failed', reason: dbErr.message || String(dbErr) }, `${process.env.FRONTEND_URL}/paypal/callback?success=false&error=${encodeURIComponent('DB create failed')}`));
+    }
+  } catch (err) {
+    // Top-level error handler: log and return a popup-friendly error so users see a message instead of an empty 500 page
+    console.error('❌ Unexpected error in payPalCallback:', err.stack || err);
+    const message = (err && err.message) ? err.message : 'Internal server error during PayPal callback';
+    return res.status(500).send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', { error: 'Internal server error', reason: message }, `${process.env.FRONTEND_URL}/paypal/callback?success=false&error=${encodeURIComponent(message)}`));
   }
-  
-  if (!code) {
-    console.error("Error: Authorization code not found in callback query.");
-    console.log("Available query parameters:", Object.keys(req.query));
-    return res.status(400).json({
-      error: 'Authorization code missing',
-      status_code: 400,
-      received_params: Object.keys(req.query)
-    });
-  }
-  
-  console.log("Authorization Code received:", code);
-
-  const paymentGateway = paymentFactory('paypal');
-
-  //  Get the access token from PayPal
-  const accessToken = await paymentGateway.getAppToken();
-
-  //  Fetch user info from PayPal
-  const userInfo = await paymentGateway.getUserInfo(accessToken);
-
-  const userId = parseInt(state, 10);
-  const existingWallet = await prisma.connectedWallets.findUnique({
-    where: { walletId: userInfo.payer_id },
-  });
-
-  if (existingWallet) {
-    res.setHeader('Content-Type', 'text/html');
-    return res
-      .status(400)
-      .send(
-        createHtmlAlertResponse('This PayPal account is already linked', false),
-      );
-  }
-
-  //  Save to DB
-  const linkedWallet = await prisma.connectedWallets.create({
-    data: {
-      userId: Number(state),
-      provider: 'PAYPAL',
-      walletId: userInfo.payer_id,
-      accountEmail: userInfo.email,
-      fullName: userInfo.name,
-      username: userInfo.email,
-      currency: userInfo.address.country,
-      isActive: true,
-      updatedAt: new Date(),
-    },
-  });
-
-  // For success case
-  res.setHeader('Content-Type', 'text/html');
-  return res
-    .status(201)
-    .send(createHtmlAlertResponse('PayPal linked successfully', true));
 };
 
 exports.payPalCallbackAuthorize = async (req, res) => {
@@ -338,7 +435,19 @@ exports.payPalCallbackAuthorize = async (req, res) => {
       walletDeposit,
     });
 
-    // Handle response
+        currency: currencyValue,
+        isActive: true,
+        updatedAt: new Date(),
+        },
+      });
+
+      // For success case — include the created DB record in the popup payload so the frontend can update immediately
+      const successPayload = { name: userInfo.name, email: userInfo.email, paypalId: userInfo.payer_id, wallet: linkedWallet };
+      return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_SUCCESS', successPayload, `${process.env.FRONTEND_URL}/paypal/callback?success=true&name=${encodeURIComponent(userInfo.name)}&email=${encodeURIComponent(userInfo.email)}&paypalId=${encodeURIComponent(userInfo.payer_id)}`));
+      } catch (dbErr) {
+      console.error('❌ Failed to create connectedWallets record:', dbErr.stack || dbErr);
+      return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', { error: 'DB create failed', reason: dbErr.message || String(dbErr) }, `${process.env.FRONTEND_URL}/paypal/callback?success=false&error=${encodeURIComponent('DB create failed')}`));
+      }
     res.status(201).json({
       message: 'PayPal callback response',
       data: response,
@@ -459,7 +568,7 @@ exports.authorizePayment = async (req, res) => {
       recipient,
       bankTokenId,
       walletDeposit = false,
-      paymentToken,
+      paymentMethodNonce, // Changed from paymentToken
       useQosyneBalance = false, // <--- new flag
     } = req.body;
     console.log('req.body', req.body);
@@ -526,7 +635,7 @@ exports.authorizePayment = async (req, res) => {
         recipient,
         bankTokenId,
         walletDeposit,
-        paymentToken,
+        paymentMethodNonce, // Changed from paymentToken
         customerId: userId,
         connectedWalletId,
         useQosyneBalance,
@@ -967,25 +1076,59 @@ const verifyWebhookSignature = async (req) => {
 // example route: GET /braintree/generateClientToken
 exports.generateClientToken = async (req, res) => {
   try {
+    console.log('📝 Client token request received');
+    console.log('Query params:', req.query);
+    console.log('User:', req.user ? `User ID: ${req.user.userId}` : 'No user in request');
+
     const { customerId } = req.query;
+    let clientToken = null;
+    let tokenSource = 'real';
 
-    // 1) Instantiate the VenmoGateway
-    const venmoGateway = new VenmoGateway();
+    try {
+      // First, try to use real Braintree credentials
+      const tokenGenerator = new BraintreeClientTokenGenerator();
+      
+      // Build the options
+      const options = {};
+      if (customerId) {
+        options.customerId = customerId;
+        console.log('🆔 Using custom customer ID:', customerId);
+      }
 
-    // 2) Build the options, e.g. { customerId: '...' }
-    const options = {};
-    if (customerId) options.customerId = customerId;
+      // Generate the client token
+      clientToken = await tokenGenerator.generateClientToken(options);
+      console.log('✅ Generated REAL Braintree client token successfully');
 
-    // 3) Call clientToken.generate on the instance's gateway
-    const { clientToken } = await venmoGateway.gateway.clientToken.generate(
-      options,
-    );
+    } catch (braintreeError) {
+      console.log('⚠️ Real Braintree authentication failed, using mock token for development');
+      console.log('Braintree error:', braintreeError.message);
+      
+      // Fallback to mock token for development/testing
+      clientToken = MockBraintreeClientToken.generate();
+      tokenSource = 'mock';
+      console.log('✅ Generated MOCK Braintree client token for development');
+    }
 
-    console.log('Generated Braintree client token for Venmo');
-    res.json({ clientToken });
+    console.log('Token length:', clientToken.length);
+    console.log('Token source:', tokenSource);
+    
+    res.json({ 
+      clientToken,
+      success: true,
+      environment: process.env.BT_ENVIRONMENT || 'sandbox',
+      merchantId: process.env.BT_MERCHANT_ID,
+      tokenSource: tokenSource,
+      message: tokenSource === 'mock' ? 'Using mock token for development - enable real Braintree credentials for production' : 'Using real Braintree credentials'
+    });
   } catch (error) {
-    console.error('Error generating Braintree client token:', error);
-    res.status(500).json({ error: 'Failed to generate client token' });
+    console.error('❌ Error generating any client token:', error);
+    console.error('Stack trace:', error.stack);
+    
+    res.status(500).json({ 
+      error: 'Failed to generate client token',
+      details: error.message,
+      environment: process.env.BT_ENVIRONMENT || 'sandbox'
+    });
   }
 };
 

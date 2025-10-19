@@ -103,7 +103,7 @@ class BraintreeGateway extends MethodBasedPayment {
       const {
         amount,
         currency = 'USD',
-        paymentToken,
+        paymentMethodNonce, // Changed from paymentToken
         connectedWalletId,
         recipient,
         walletDeposit = false,
@@ -131,7 +131,7 @@ class BraintreeGateway extends MethodBasedPayment {
           // or create a separate transaction to the recipient
           const transactionResult = await this.gateway.transaction.sale({
             amount: amount,
-            paymentMethodToken: paymentToken,
+            paymentMethodNonce: paymentMethodNonce, // Changed from paymentToken
             customerId: connectedWalletId,
             options: {
               submitForSettlement: true
@@ -163,7 +163,7 @@ class BraintreeGateway extends MethodBasedPayment {
         // Handle wallet deposit
         const transactionResult = await this.gateway.transaction.sale({
           amount: amount,
-          paymentMethodToken: paymentToken,
+          paymentMethodNonce: paymentMethodNonce, // Changed from paymentToken
           customerId: connectedWalletId,
           options: {
             submitForSettlement: true
@@ -188,7 +188,7 @@ class BraintreeGateway extends MethodBasedPayment {
         if (recipient?.email) {
           const transactionResult = await this.gateway.transaction.sale({
             amount: amount,
-            paymentMethodToken: paymentToken,
+            paymentMethodNonce: paymentMethodNonce, // Changed from paymentToken
             customerId: connectedWalletId,
             options: {
               submitForSettlement: true
@@ -213,7 +213,7 @@ class BraintreeGateway extends MethodBasedPayment {
           // Regular payment without specific recipient
           const transactionResult = await this.gateway.transaction.sale({
             amount: amount,
-            paymentMethodToken: paymentToken,
+            paymentMethodNonce: paymentMethodNonce, // Changed from paymentToken
             customerId: connectedWalletId,
             options: {
               submitForSettlement: true

@@ -18,8 +18,8 @@ class WalletService {
         oauthUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
         tokenUrl: 'https://oauth2.googleapis.com/token',
         apiUrl: 'https://www.googleapis.com/wallet/objects/v1',
-        clientId: process.env.GOOGLE_PAY_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_PAY_CLIENT_SECRET,
+        clientId: process.env.GOOGLE_PAY_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_PAY_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET,
         redirectUri: process.env.GOOGLE_PAY_REDIRECT_URI,
         scopes: ['https://www.googleapis.com/auth/wallet_object.issuer'],
         capabilities: ['send', 'receive', 'bank_account']
@@ -47,6 +47,14 @@ class WalletService {
         capabilities: ['send', 'receive']
       },
       APPLEPAY: {
+        oauthUrl: 'https://appleid.apple.com/auth/authorize',
+        tokenUrl: 'https://appleid.apple.com/auth/token',
+        clientId: process.env.APPLE_CLIENT_ID || 'com.qosyne.service',
+        teamId: process.env.APPLE_TEAM_ID || 'V5TSZ86H9M',
+        keyId: process.env.APPLE_KEY_ID || 'L872V54RSB',
+        privateKey: process.env.APPLE_PRIVATE_KEY || process.env.APPLE_PRIVATE_KEY_P8 || null,
+        redirectUri: process.env.APPLE_REDIRECT_URI || 'https://qosyncefrontend.vercel.app/apple-pay/callback',
+        scopes: ['name', 'email'],
         merchantId: process.env.APPLE_PAY_MERCHANT_ID,
         merchantDomain: process.env.APPLE_PAY_MERCHANT_DOMAIN,
         certificatePath: process.env.APPLE_PAY_CERTIFICATE_PATH,
@@ -86,7 +94,7 @@ class WalletService {
 
   async connectWallet(userId, walletData) {
     try {
-      const { authCode, accessToken } = walletData;
+      const { authCode, accessToken, connectionType, identifier, bankDetails } = walletData;
       // Normalize and validate inputs
       const numericUserId = Number(userId);
       if (!numericUserId || Number.isNaN(numericUserId)) {
@@ -126,16 +134,11 @@ class WalletService {
         
         switch (provider) {
           case 'PAYPAL':
-            connectionResult = await this.connectPayPal(userId, authCode);
+            connectionResult = await this.connectPayPal(userId, JSON.stringify(walletData));
             break;
           case 'GOOGLEPAY':
-            // For Google Pay, we expect credentials to contain connection and bank data
-            const googlePayCredentials = JSON.stringify({
-              connectionType: connectionType || 'email',
-              identifier: identifier || accessToken,
-              bankDetails: bankDetails || {}
-            });
-            connectionResult = await this.connectGooglePay(userId, googlePayCredentials);
+            // Pass full wallet data for manual connections
+            connectionResult = await this.connectGooglePay(userId, authCode, walletData);
             break;
           case 'WISE':
             connectionResult = await this.connectWise(userId, authCode);
@@ -147,7 +150,7 @@ class WalletService {
             connectionResult = await this.connectVenmo(userId, authCode);
             break;
           case 'APPLEPAY':
-            connectionResult = await this.connectApplePay(userId, authCode);
+            connectionResult = await this.connectApplePay(userId, JSON.stringify({ identifier, bankDetails }));
             break;
           default:
             throw new Error(`Connection method not implemented for ${provider}`);
@@ -181,16 +184,11 @@ class WalletService {
       
       switch (provider) {
         case 'PAYPAL':
-          connectionResult = await this.connectPayPal(userId, authCode);
+          connectionResult = await this.connectPayPal(userId, JSON.stringify(walletData));
           break;
         case 'GOOGLEPAY':
-          // For Google Pay, we expect credentials to contain connection and bank data
-          const googlePayCredentials = JSON.stringify({
-            connectionType: connectionType,
-            identifier: identifier,
-            bankDetails: bankDetails
-          });
-          connectionResult = await this.connectGooglePay(userId, googlePayCredentials);
+          // Pass full wallet data for manual connections
+          connectionResult = await this.connectGooglePay(userId, authCode, walletData);
           break;
         case 'WISE':
           connectionResult = await this.connectWise(userId, authCode);
@@ -202,7 +200,7 @@ class WalletService {
           connectionResult = await this.connectVenmo(userId, authCode);
           break;
         case 'APPLEPAY':
-          connectionResult = await this.connectApplePay(userId, authCode);
+          connectionResult = await this.connectApplePay(userId, JSON.stringify({ identifier, bankDetails }));
           break;
         default:
           throw new Error(`Connection method not implemented for ${provider}`);
@@ -259,9 +257,31 @@ class WalletService {
     }
   }
 
-  async connectPayPal(userId, authCode) {
+  async connectPayPal(userId, credentials) {
     try {
-      console.log('Connecting PayPal with real OAuth flow');
+      console.log('💙 Connecting PayPal wallet for user:', userId);
+      console.log('💙 Credentials received type:', typeof credentials);
+      
+      // Parse credentials - can be OAuth code OR Braintree payment nonce
+      let connectionData;
+      try {
+        connectionData = JSON.parse(credentials);
+      } catch (e) {
+        // If not JSON, treat as OAuth authorization code
+        connectionData = { authCode: credentials };
+      }
+
+      console.log('💙 Connection data:', connectionData);
+
+      // Check if this is a Braintree PayPal connection (has paymentMethodNonce)
+      if (connectionData.paymentMethodNonce && connectionData.connectionType === 'BRAINTREE') {
+        console.log('💙 Using Braintree PayPal integration');
+        return await this.connectPayPalBraintree(userId, connectionData);
+      }
+
+      // Otherwise, use PayPal OAuth flow
+      console.log('💙 Using PayPal OAuth flow');
+      const authCode = connectionData.authCode;
       
       // Check if we have valid PayPal credentials
       if (!this.providers.PAYPAL.clientId || !this.providers.PAYPAL.clientSecret) {
@@ -304,11 +324,11 @@ class WalletService {
         currency: 'USD'
       };
     } catch (error) {
-      console.error('PayPal OAuth error:', error.response?.data || error.message);
+      console.error('💙 PayPal connection error:', error.response?.data || error.message);
       
       // Fallback to demo mode if OAuth fails
-      if (authCode === 'demo' || error.response?.status === 400) {
-        console.log('Falling back to PayPal demo mode');
+      if (error.response?.status === 400) {
+        console.log('💙 Falling back to PayPal demo mode');
         return {
           walletId: `paypal_demo_${userId}_${Date.now()}`,
           accountEmail: `demo${userId}@paypal.com`,
@@ -323,148 +343,212 @@ class WalletService {
     }
   }
 
-  async connectGooglePay(userId, credentials) {
+  async connectPayPalBraintree(userId, connectionData) {
     try {
-      // Parse credentials - expecting JSON string with connection data and bank details
-      let connectionData;
-      try {
-        connectionData = JSON.parse(credentials);
-      } catch (e) {
-        throw new Error('Invalid credentials format. Expected JSON with connection and bank data');
-      }
-
-      const { connectionType, identifier, bankDetails } = connectionData;
-      if (!connectionType || !identifier || !bankDetails) {
-        throw new Error('Connection type, identifier, and bank details are required');
-      }
-
-      // Validate bank details
-      const { accountNumber, routingNumber, accountHolderName, bankName, country, accountType } = bankDetails;
-      if (!accountNumber || !routingNumber || !accountHolderName || !bankName || !accountType) {
-        throw new Error('Complete bank account details are required');
-      }
-
-      // Check if we have valid Google Pay API credentials
-      if (!this.providers.GOOGLEPAY.clientId || !this.providers.GOOGLEPAY.clientSecret) {
-        console.warn('Google Pay API credentials not configured. Using simulation mode.');
-        
-        // Simulate Google Pay connection with bank account validation
-        return {
-          walletId: `googlepay_${userId}_${Date.now()}`,
-          accountEmail: identifier,
-          fullName: accountHolderName,
-          accessToken: `simulated_token_${Date.now()}`,
-          refreshToken: null,
-          currency: 'USD',
-          bankAccount: {
-            accountNumber: `****${accountNumber.slice(-4)}`, // Masked for security
-            routingNumber: routingNumber,
-            bankName: bankName,
-            accountType: accountType,
-            country: country
-          },
-          connectionType: connectionType,
-          isSimulated: true
-        };
-      }
-
-      // Real Google Pay OAuth flow
-      try {
-        // Step 1: Generate OAuth URL for user authorization
-        const oauthUrl = this.generateGooglePayOAuthUrl(userId, connectionData);
-        
-        // In a real implementation, you would:
-        // 1. Redirect user to oauthUrl
-        // 2. Handle the callback with authorization code
-        // 3. Exchange code for access token
-        // 4. Use access token to create Google Pay wallet with bank account
-        
-        // For now, simulate the OAuth flow
-        const simulatedAuthCode = `auth_${Date.now()}`;
-        const tokenResponse = await this.exchangeGooglePayAuthCode(simulatedAuthCode, connectionData);
-        
-        // Create Google Pay wallet with bank account
-        const walletResponse = await this.createGooglePayWallet(tokenResponse.access_token, bankDetails);
-        
-        return {
-          walletId: walletResponse.walletId || `googlepay_${userId}_${Date.now()}`,
-          accountEmail: identifier,
-          fullName: accountHolderName,
-          accessToken: tokenResponse.access_token,
-          refreshToken: tokenResponse.refresh_token,
-          currency: 'USD',
-          bankAccount: {
-            accountNumber: `****${accountNumber.slice(-4)}`, // Masked for security
-            routingNumber: routingNumber,
-            bankName: bankName,
-            accountType: accountType,
-            country: country
-          },
-          connectionType: connectionType,
-          isReal: true
-        };
-        
-      } catch (apiError) {
-        console.error('Google Pay API error:', apiError);
-        throw new Error(`Google Pay connection failed: ${apiError.message}`);
-      }
+      console.log('💙 Connecting PayPal via Braintree for user:', userId);
       
-    } catch (error) {
-      throw new Error(`Google Pay connection failed: ${error.message}`);
-    }
-  }
+      const { paymentMethodNonce, paypalDetails } = connectionData;
+      
+      if (!paymentMethodNonce) {
+        throw new Error('PayPal payment method nonce is required');
+      }
 
-  generateGooglePayOAuthUrl(userId, connectionData) {
-    const params = new URLSearchParams({
-      client_id: this.providers.GOOGLEPAY.clientId,
-      redirect_uri: this.providers.GOOGLEPAY.redirectUri,
-      scope: this.providers.GOOGLEPAY.scopes.join(' '),
-      response_type: 'code',
-      state: JSON.stringify({ userId, connectionData }),
-      access_type: 'offline',
-      prompt: 'consent'
-    });
-    
-    return `${this.providers.GOOGLEPAY.oauthUrl}?${params.toString()}`;
-  }
+      // Require valid Braintree credentials
+      if (!process.env.BT_MERCHANT_ID || !process.env.BT_PUBLIC_KEY || !process.env.BT_PRIVATE_KEY) {
+        throw new Error('Braintree credentials are required for PayPal integration');
+      }
 
-  async exchangeGooglePayAuthCode(authCode, connectionData) {
-    try {
-      const response = await axios.post(this.providers.GOOGLEPAY.tokenUrl, {
-        client_id: this.providers.GOOGLEPAY.clientId,
-        client_secret: this.providers.GOOGLEPAY.clientSecret,
-        code: authCode,
-        grant_type: 'authorization_code',
-        redirect_uri: this.providers.GOOGLEPAY.redirectUri
-      }, {
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded'
-        }
+      // Use Braintree SDK to create customer and payment method
+      const braintree = require('braintree');
+      const gateway = new braintree.BraintreeGateway({
+        environment: braintree.Environment.Sandbox,
+        merchantId: process.env.BT_MERCHANT_ID,
+        publicKey: process.env.BT_PUBLIC_KEY,
+        privateKey: process.env.BT_PRIVATE_KEY,
       });
-      
-      return response.data;
+
+      // Create or find Braintree customer
+      let customer;
+      const customerData = {
+        firstName: paypalDetails?.firstName || 'PayPal',
+        lastName: paypalDetails?.lastName || 'User',
+        email: paypalDetails?.email || `user${userId}@paypal.com`,
+      };
+
+      try {
+        const createResult = await gateway.customer.create(customerData);
+        if (!createResult.success) {
+          throw new Error(`Failed to create Braintree customer: ${createResult.message}`);
+        }
+        customer = createResult.customer;
+        console.log('✅ Braintree customer created:', customer.id);
+      } catch (err) {
+        throw new Error(`Braintree customer creation failed: ${err.message}`);
+      }
+
+      // Create payment method from nonce
+      try {
+        const paymentMethodResult = await gateway.paymentMethod.create({
+          customerId: customer.id,
+          paymentMethodNonce: paymentMethodNonce,
+          options: {
+            makeDefault: true,
+            verifyCard: false
+          }
+        });
+
+        if (!paymentMethodResult.success) {
+          throw new Error(`Failed to create payment method: ${paymentMethodResult.message}`);
+        }
+
+        const paymentMethod = paymentMethodResult.paymentMethod;
+        console.log('✅ PayPal payment method created:', paymentMethod.token);
+
+        // Return wallet connection data
+        return {
+          walletId: `paypal_bt_${customer.id}`,
+          accountEmail: paypalDetails?.email || customer.email,
+          fullName: `${customer.firstName} ${customer.lastName}`,
+          username: paypalDetails?.email || customer.email,
+          accessToken: customer.id, // Store Braintree customer ID as access token
+          paymentMethodToken: paymentMethod.token,
+          refreshToken: paypalDetails?.billingAgreementId || null,
+          currency: 'USD',
+          braintreeCustomerId: customer.id,
+          payerId: paypalDetails?.payerId
+        };
+      } catch (err) {
+        throw new Error(`Payment method creation failed: ${err.message}`);
+      }
     } catch (error) {
-      throw new Error(`Failed to exchange auth code: ${error.message}`);
+      console.error('❌ Braintree PayPal error:', error);
+      throw new Error(`Braintree PayPal connection failed: ${error.message}`);
     }
   }
 
-  async createGooglePayWallet(accessToken, bankDetails) {
+  async connectGooglePay(userId, credentials, walletData = null) {
     try {
-      // In a real implementation, this would create a Google Pay wallet
-      // with the provided bank account details using Google Pay APIs
+      console.log('Connecting Google Pay via OAuth + Braintree integration');
+      console.log('📧 Received credentials:', typeof credentials === 'string' ? credentials.substring(0, 50) + '...' : credentials);
       
-      // For simulation, return a mock wallet response
-      return {
-        walletId: `gpay_wallet_${Date.now()}`,
-        status: 'active',
-        bankAccountLinked: true,
-        bankAccount: {
-          id: `bank_${Date.now()}`,
-          status: 'verified'
+      let userEmail, firstName, lastName, fullName, googleAccessToken;
+      
+      // Check if this is an OAuth authorization code
+      if (typeof credentials === 'string' && credentials.length > 20 && !credentials.startsWith('{')) {
+        console.log('✅ OAuth flow detected - exchanging code for tokens');
+        
+        // Exchange authorization code for access token
+        const tokenResponse = await axios.post(this.providers.GOOGLEPAY.tokenUrl, null, {
+          params: {
+            code: credentials,
+            client_id: this.providers.GOOGLEPAY.clientId,
+            client_secret: this.providers.GOOGLEPAY.clientSecret,
+            redirect_uri: this.providers.GOOGLEPAY.redirectUri,
+            grant_type: 'authorization_code'
+          }
+        });
+
+        googleAccessToken = tokenResponse.data.access_token;
+        console.log('✅ Got Google access token');
+
+        // Get user info from Google
+        const userInfoResponse = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: {
+            'Authorization': `Bearer ${googleAccessToken}`
+          }
+        });
+
+        const userInfo = userInfoResponse.data;
+        console.log('✅ Got Google user info:', userInfo.email);
+
+        userEmail = userInfo.email;
+        firstName = userInfo.given_name || 'Google';
+        lastName = userInfo.family_name || 'Pay';
+        fullName = userInfo.name || `${firstName} ${lastName}`;
+        
+      } else {
+        // Check if this is a manual connection with real user data
+        const isManualConnection = walletData?.connectionType === 'MANUAL' && walletData?.identifier;
+        
+        if (isManualConnection) {
+          // Extract email and name from walletData
+          userEmail = walletData.identifier;
+          fullName = walletData.bankDetails?.accountHolderName || 'Google Pay User';
+          
+          // Split name into first and last
+          const nameParts = fullName.trim().split(/\s+/);
+          firstName = nameParts[0] || 'Google';
+          lastName = nameParts.slice(1).join(' ') || 'Pay';
+          
+          console.log('ℹ️ Manual connection - using provided email:', userEmail);
+        } else {
+          // Parse credentials - can be payment method nonce or user info
+          let connectionData;
+          try {
+            connectionData = JSON.parse(credentials);
+          } catch (e) {
+            connectionData = { paymentMethodNonce: credentials };
+          }
+
+          const { customerInfo } = connectionData;
+          userEmail = customerInfo?.email || `user${userId}@googlepay.example.com`;
+          firstName = customerInfo?.firstName || 'GooglePay';
+          lastName = customerInfo?.lastName || 'User';
+          fullName = `${firstName} ${lastName}`;
         }
+      }
+      
+      // Require valid Braintree credentials for real integration
+      if (!process.env.BT_MERCHANT_ID || !process.env.BT_PUBLIC_KEY || !process.env.BT_PRIVATE_KEY) {
+        throw new Error('Braintree sandbox credentials are required for Google Pay integration. Please configure BT_MERCHANT_ID, BT_PUBLIC_KEY, and BT_PRIVATE_KEY in your environment variables.');
+      }
+
+      // Use real Braintree integration for Google Pay
+      const braintree = require('braintree');
+      const gateway = new braintree.BraintreeGateway({
+        environment: braintree.Environment.Sandbox,
+        merchantId: process.env.BT_MERCHANT_ID,
+        publicKey: process.env.BT_PUBLIC_KEY,
+        privateKey: process.env.BT_PRIVATE_KEY,
+      });
+
+      // Create Braintree customer with real Google account data
+      const customerData = {
+        firstName: firstName,
+        lastName: lastName,
+        email: userEmail,
+      };
+
+      console.log('📝 Creating Braintree customer with real Google data:', customerData);
+
+      let customer;
+      try {
+        const createResult = await gateway.customer.create(customerData);
+        if (!createResult.success) {
+          throw new Error(`Failed to create Braintree customer: ${createResult.message}`);
+        }
+        customer = createResult.customer;
+        console.log('✅ Braintree customer created:', customer.id, '-', customer.email);
+      } catch (error) {
+        console.error('Braintree customer creation failed:', error);
+        throw new Error(`Google Pay connection failed: ${error.message}`);
+      }
+
+      return {
+        walletId: `googlepay_${userId}_${Date.now()}`,
+        accountEmail: customer.email,
+        fullName: `${customer.firstName} ${customer.lastName}`.trim(),
+        username: customer.email,
+        accessToken: googleAccessToken || customer.id, // Store Google access token if available
+        refreshToken: null,
+        currency: 'USD',
+        balance: 0,
+        braintreeCustomerId: customer.id,
+        paymentMethodToken: null
       };
     } catch (error) {
-      throw new Error(`Failed to create Google Pay wallet: ${error.message}`);
+      console.error('Google Pay connection error:', error);
+      throw new Error(`Google Pay connection failed: ${error.message}`);
     }
   }
 
@@ -623,66 +707,115 @@ class WalletService {
 
   async connectApplePay(userId, credentials) {
     try {
-      // Parse credentials - expecting JSON string with connection data
+      console.log('🍎 Connecting Apple Pay wallet for user:', userId);
+      console.log('🍎 Credentials received:', credentials);
+
+      // Parse credentials - expecting JSON string with connection data OR OAuth code
       let connectionData;
       try {
         connectionData = JSON.parse(credentials);
       } catch (e) {
-        // If not JSON, treat as simple identifier
-        connectionData = { identifier: credentials };
+        // If not JSON, treat as OAuth authorization code
+        connectionData = { authCode: credentials };
       }
 
-      const { identifier, deviceId } = connectionData;
+      // Check if this is an OAuth flow (has authCode)
+      if (connectionData.authCode) {
+        console.log('🍎 Using OAuth flow for Apple Sign-In');
+        return await this.connectApplePayOAuth(userId, connectionData.authCode);
+      }
+
+      // Otherwise, use direct connection (legacy/fallback)
+      const { identifier, deviceId, bankDetails } = connectionData;
       if (!identifier) {
         throw new Error('Apple Pay identifier is required');
       }
 
-      // Check if we have valid Apple Pay credentials
-      if (!this.providers.APPLEPAY.merchantId) {
-        // Demo mode for testing
-        if (identifier === 'demo@apple.com' || identifier === 'demo') {
-          const mockUser = {
-            id: `${Date.now()}${Math.floor(Math.random() * 1000)}`,
-            email: 'demo@apple.com',
-            firstName: 'Demo',
-            lastName: 'User'
-          };
+      // Ensure identifier is a string
+      const identifierStr = String(identifier);
+      console.log('🍎 Connection data:', { identifier: identifierStr, deviceId, bankDetails });
 
-          return {
-            walletId: `applepay_${mockUser.id}`,
-            accountEmail: mockUser.email,
-            fullName: `${mockUser.firstName} ${mockUser.lastName}`,
-            username: identifier,
-            accessToken: `applepay_demo_token_${Date.now()}`,
-            refreshToken: null,
-            currency: 'USD',
-            deviceId: deviceId || `demo_device_${Date.now()}`
-          };
-        }
-        throw new Error('Apple Pay credentials not configured. Use demo@apple.com for testing.');
-      }
-
-      // For real Apple Pay integration, you would validate the merchant session here
-      // This is a simplified version that creates a connection
+      // Create Apple Pay wallet connection
+      // In a production environment, this would integrate with Apple Pay merchant validation
+      // For now, we create a direct connection using the user's email
       const applePayUser = {
         id: `applepay_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
-        email: identifier.includes('@') ? identifier : `${identifier}@icloud.com`,
-        firstName: identifier.split('@')[0] || identifier,
-        lastName: 'User'
+        email: identifierStr.includes('@') ? identifierStr : `${identifierStr}@icloud.com`,
+        firstName: bankDetails?.accountHolderName?.split(' ')[0] || identifierStr.split('@')[0] || 'Apple',
+        lastName: bankDetails?.accountHolderName?.split(' ').slice(1).join(' ') || 'Pay User'
       };
 
-      return {
+      const walletData = {
         walletId: `applepay_${applePayUser.id}`,
         accountEmail: applePayUser.email,
         fullName: `${applePayUser.firstName} ${applePayUser.lastName}`,
-        username: identifier,
+        username: identifierStr,
         accessToken: `applepay_token_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         refreshToken: null,
         currency: 'USD',
         deviceId: deviceId || `device_${Date.now()}`
       };
+
+      console.log('✅ Apple Pay wallet connection created:', walletData);
+      return walletData;
     } catch (error) {
+      console.error('❌ Apple Pay connection error:', error);
       throw new Error(`Apple Pay connection failed: ${error.message}`);
+    }
+  }
+
+  async connectApplePayOAuth(userId, authCode) {
+    try {
+      console.log('🍎 Processing Apple Sign-In OAuth for user:', userId);
+      
+      // For Apple Sign-In, the authCode can be either:
+      // 1. Authorization code (to be exchanged for tokens)
+      // 2. ID token (JWT) directly from Apple
+      
+      let userInfo;
+      
+      // Check if it's a JWT (ID token)
+      if (authCode.includes('.')) {
+        console.log('🍎 Received ID token, decoding...');
+        // Decode ID token (simplified - in production, verify signature)
+        const payload = JSON.parse(Buffer.from(authCode.split('.')[1], 'base64').toString());
+        userInfo = {
+          sub: payload.sub,
+          email: payload.email,
+          email_verified: payload.email_verified,
+          is_private_email: payload.is_private_email
+        };
+      } else {
+        console.log('🍎 Received authorization code, would exchange for tokens in production');
+        // In production, you would exchange the code for tokens here
+        // For now, create a mock user from the code
+        userInfo = {
+          sub: `apple_user_${Date.now()}`,
+          email: `apple_user_${Math.random().toString(36).substring(7)}@icloud.com`,
+          email_verified: true,
+          is_private_email: false
+        };
+      }
+
+      console.log('🍎 Apple user info:', userInfo);
+
+      // Create wallet connection data
+      const walletData = {
+        walletId: `applepay_${userInfo.sub}`,
+        accountEmail: userInfo.email,
+        fullName: userInfo.email.split('@')[0],
+        username: userInfo.email,
+        accessToken: `applepay_oauth_token_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        refreshToken: null,
+        currency: 'USD',
+        isPrivateEmail: userInfo.is_private_email || false
+      };
+
+      console.log('✅ Apple Pay OAuth wallet connection created:', walletData);
+      return walletData;
+    } catch (error) {
+      console.error('❌ Apple Pay OAuth error:', error);
+      throw new Error(`Apple Pay OAuth failed: ${error.message}`);
     }
   }
 
@@ -775,13 +908,53 @@ class WalletService {
 
   async disconnectWallet(userId, walletId) {
     try {
-      const wallet = await prisma.connectedWallets.findFirst({
-        where: { userId, walletId, isActive: true }
-      });
+      console.log('🔍 Disconnecting wallet - Input:', { userId, walletId, walletIdType: typeof walletId });
+      
+      // Try to find by database ID first (numeric)
+      let wallet;
+      if (!isNaN(walletId)) {
+        const numericId = parseInt(walletId);
+        console.log('🔍 Searching by database ID:', numericId);
+        
+        wallet = await prisma.connectedWallets.findFirst({
+          where: { 
+            id: numericId,
+            userId: parseInt(userId),
+            isActive: true 
+          }
+        });
+        
+        console.log('🔍 Search by DB ID result:', wallet ? 'Found' : 'Not found');
+      }
+      
+      // If not found, try by walletId (external ID)
+      if (!wallet) {
+        console.log('🔍 Searching by external walletId:', walletId);
+        
+        wallet = await prisma.connectedWallets.findFirst({
+          where: { 
+            userId: parseInt(userId), 
+            walletId: String(walletId), 
+            isActive: true 
+          }
+        });
+        
+        console.log('🔍 Search by walletId result:', wallet ? 'Found' : 'Not found');
+      }
 
       if (!wallet) {
+        console.error('❌ Wallet not found with params:', { userId, walletId });
+        
+        // Let's check what wallets exist for this user
+        const allUserWallets = await prisma.connectedWallets.findMany({
+          where: { userId: parseInt(userId) }
+        });
+        console.error('❌ All wallets for user:', allUserWallets);
+        
         throw new Error('Wallet not found or already disconnected');
       }
+
+      console.log('✅ Found wallet to disconnect:', wallet);
 
       await prisma.connectedWallets.update({
         where: { id: wallet.id },
@@ -791,10 +964,10 @@ class WalletService {
         }
       });
 
-      console.log('Wallet disconnected', { userId, walletId });
+      console.log('✅ Wallet disconnected successfully:', { userId, walletId });
       return true;
     } catch (error) {
-      console.error('Error disconnecting wallet:', error);
+      console.error('❌ Error disconnecting wallet:', error);
       throw error;
     }
   }
@@ -1007,13 +1180,71 @@ class WalletService {
   async getOAuthUrl(provider, redirectUri, userId) {
     const state = crypto.randomBytes(16).toString('hex');
     
+    // Store state in database for validation (optional - skip if table doesn't exist)
+    try {
+      await prisma.oauthStates.create({
+        data: {
+          state,
+          provider,
+          userId: Number(userId),
+          redirectUri,
+          expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes
+        }
+      });
+    } catch (err) {
+      console.log('OAuth state storage skipped (table may not exist):', err.message);
+    }
+    
     switch (provider) {
       case 'PAYPAL':
         return `${this.providers.PAYPAL.baseUrl}/connect/?flowEntry=static&client_id=${this.providers.PAYPAL.clientId}&response_type=code&scope=openid profile email&redirect_uri=${redirectUri}&state=${state}`;
+      
+      case 'GOOGLEPAY': {
+        const googleOAuthUrl = this.providers.GOOGLEPAY.oauthUrl;
+        const clientId = this.providers.GOOGLEPAY.clientId;
+        // Use standard OpenID Connect scopes (no special wallet_object.issuer needed)
+        const scopes = [
+          'openid',
+          'email',
+          'profile'
+        ].join(' ');
+        
+        const params = new URLSearchParams({
+          client_id: clientId,
+          redirect_uri: redirectUri,
+          response_type: 'code',
+          scope: scopes,
+          state: state,
+          access_type: 'offline',
+          prompt: 'consent'
+        });
+        
+        return `${googleOAuthUrl}?${params.toString()}`;
+      }
+      
       case 'WISE':
         return `${this.providers.WISE.baseUrl}/oauth/authorize?response_type=code&client_id=${this.providers.WISE.clientId}&redirect_uri=${redirectUri}&state=${state}`;
+      
       case 'SQUARE':
         return `${this.providers.SQUARE.baseUrl}/oauth2/authorize?client_id=${this.providers.SQUARE.applicationId}&response_type=code&scope=MERCHANT_PROFILE_READ PAYMENTS_WRITE&redirect_uri=${redirectUri}&state=${state}`;
+      
+      case 'APPLEPAY': {
+        const appleOAuthUrl = this.providers.APPLEPAY.oauthUrl;
+        const clientId = this.providers.APPLEPAY.clientId;
+        const scopes = this.providers.APPLEPAY.scopes.join(' ');
+        
+        const params = new URLSearchParams({
+          client_id: clientId,
+          redirect_uri: redirectUri,
+          response_type: 'code id_token',
+          response_mode: 'form_post',
+          scope: scopes,
+          state: state
+        });
+        
+        return `${appleOAuthUrl}?${params.toString()}`;
+      }
+      
       default:
         throw new Error(`OAuth not supported for ${provider}`);
     }
