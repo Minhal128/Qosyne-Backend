@@ -435,28 +435,16 @@ exports.payPalCallbackAuthorize = async (req, res) => {
       walletDeposit,
     });
 
-        currency: currencyValue,
-        isActive: true,
-        updatedAt: new Date(),
-        },
-      });
-
-      // For success case — include the created DB record in the popup payload so the frontend can update immediately
-      const successPayload = { name: userInfo.name, email: userInfo.email, paypalId: userInfo.payer_id, wallet: linkedWallet };
-      return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_SUCCESS', successPayload, `${process.env.FRONTEND_URL}/paypal/callback?success=true&name=${encodeURIComponent(userInfo.name)}&email=${encodeURIComponent(userInfo.email)}&paypalId=${encodeURIComponent(userInfo.payer_id)}`));
-      } catch (dbErr) {
-      console.error('❌ Failed to create connectedWallets record:', dbErr.stack || dbErr);
-      return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', { error: 'DB create failed', reason: dbErr.message || String(dbErr) }, `${process.env.FRONTEND_URL}/paypal/callback?success=false&error=${encodeURIComponent('DB create failed')}`));
-      }
-    res.status(201).json({
-      message: 'PayPal callback response',
+    // Return PayPal authorization response
+    return res.status(201).json({
+      message: 'PayPal authorization processed',
       data: response,
       status_code: 201,
     });
   } catch (err) {
-    console.error('PayPal callback error:', err);
-    res.status(500).json({
-      error: 'Payment processing failed',
+    console.error('PayPal authorize callback error:', err);
+    return res.status(500).json({
+      error: 'Payment authorization failed',
       status_code: 500,
     });
   }

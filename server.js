@@ -29,17 +29,12 @@ const app = express();
 
 // Global CORS fallback middleware: reflect request origin when allowed and handle OPTIONS preflight
 // This runs before the cors() package to ensure serverless or proxy setups still respond
-const allowedOrigins = [
-  process.env.FRONTEND_URL || 'http://localhost:3000',
-  'https://qosyncefrontend.vercel.app',
-  'https://qosyne.vercel.app',
-];
+
 app.use((req, res, next) => {
   try {
     const reqOrigin = req.headers.origin;
-    // If the request origin is allowed, echo it back. Otherwise use the first allowed origin.
-    const originToSet = reqOrigin && allowedOrigins.includes(reqOrigin) ? reqOrigin : allowedOrigins[0];
-    res.header('Access-Control-Allow-Origin', originToSet);
+    // Echo back the request origin (allows any origin). If none, set to '*'.
+    res.header('Access-Control-Allow-Origin', reqOrigin || '*');
     res.header('Access-Control-Allow-Credentials', 'true');
     res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
@@ -54,12 +49,8 @@ app.use((req, res, next) => {
 
 // Configure CORS options using the allowedOrigins defined above
 const corsOptions = {
-  origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl)
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    return callback(new Error('Not allowed by CORS'));
-  },
+  // origin: true tells the cors middleware to reflect the request Origin, allowing any origin
+  origin: true,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
