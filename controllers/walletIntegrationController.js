@@ -287,7 +287,12 @@ exports.getOAuthUrl = async (req, res) => {
 exports.handleOAuthCallback = async (req, res) => {
   try {
     const { provider } = req.params;
-    const { code, state } = req.query;
+    // Support both GET (query) and POST (body) deliveries of code/state
+    const { code: bodyCode, state: bodyState } = req.body || {};
+    const { code: queryCode, state: queryState } = req.query || {};
+    const code = bodyCode || queryCode;
+    const state = bodyState || queryState;
+    console.log('🔔 handleOAuthCallback called', { provider, code: !!code, hasBody: !!req.body, hasQuery: !!req.query });
     const userId = req.user.userId;
 
     if (!code) {
@@ -310,6 +315,67 @@ exports.handleOAuthCallback = async (req, res) => {
       success: false,
       error: error.message || 'Failed to handle OAuth callback'
     });
+  }
+};
+
+// Accept Apple form_post (Apple may POST response_mode=form_post to redirectUri)
+// This endpoint extracts posted fields and redirects to the SPA callback route with query params
+exports.handleAppleFormPost = async (req, res) => {
+  try {
+    // Apple posts fields in form-encoded body: code, id_token, state, etc.
+    const { code, id_token, state } = req.body || {};
+    console.log('🔔 Received Apple form_post body:', { code: !!code, id_token: !!id_token, state });
+
+    // Build redirect URL to SPA callback route
+    const redirectBase = process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`;
+    const params = new URLSearchParams();
+    if (code) params.set('code', code);
+    if (id_token) params.set('id_token', id_token);
+    if (state) params.set('state', state);
+
+    const redirectUrl = `${redirectBase.replace(/\/$/, '')}/apple-pay/callback?${params.toString()}`;
+
+  // Log and redirect user agent to SPA callback so client-side code can read the query params
+  console.log('🔔 Redirecting Apple form_post to SPA callback URL:', redirectUrl);
+  return res.redirect(302, redirectUrl);
+  } catch (err) {
+    console.error('Error handling Apple form_post:', err);
+    return res.status(500).send('Internal server error');
+  }
+};
+
+// Mock connect handler - only enabled in non-production or when ENABLE_MOCK=true
+exports.mockConnectApplePay = async (req, res) => {
+  try {
+    if (process.env.NODE_ENV === 'production' && process.env.ENABLE_MOCK !== 'true') {
+      return res.status(403).json({ success: false, error: 'Mock connect disabled in production' });
+    }
+
+    const userId = req.user.userId;
+    const { accountEmail } = req.body;
+
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+
+    const fakeWallet = await prisma.connectedWallets.create({
+      data: {
+        userId: Number(userId),
+        provider: 'APPLEPAY',
+        walletId: `applepay_mock_${Date.now()}`,
+        accountEmail: accountEmail || `test+${userId}@example.com`,
+        fullName: 'Apple Test User',
+        username: accountEmail || `test_user_${userId}`,
+        currency: 'USD',
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }
+    });
+
+    return res.status(201).json({ success: true, data: { wallet: fakeWallet }, message: 'Mock Apple Pay wallet connected' });
+  } catch (err) {
+    console.error('Mock connect error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to create mock wallet' });
   }
 };
 
@@ -1496,13 +1562,11 @@ exports.initSquareOAuth = async (req, res) => {
     const { redirectUri, state } = req.body;
     const userId = req.user.userId;
     
-    // Square OAuth URL
-    const authUrl = `https://connect.squareupsandbox.com/oauth2/authorize?` +
-      `client_id=${process.env.SQUARE_APPLICATION_ID}&` +
-      `redirect_uri=${encodeURIComponent(redirectUri)}&` +
-      `response_type=code&` +
-      `scope=MERCHANT_PROFILE_READ+PAYMENTS_WRITE&` +
-      `state=${state}`;
+    // Use configured SQUARE_BASE_URL or default to Square sandbox
+    const squareBase = process.env.SQUARE_BASE_URL || 'https://connect.squareupsandbox.com';
+
+    // Square OAuth URL (simple form)
+    const authUrl = `${squareBase}/oauth2/authorize?client_id=${process.env.SQUARE_APPLICATION_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=MERCHANT_PROFILE_READ+PAYMENTS_WRITE&state=${state}`;
     
     // Store the OAuth state
     const { PrismaClient } = require('@prisma/client');
@@ -1533,6 +1597,7 @@ exports.initSquareOAuth = async (req, res) => {
 exports.handleSquareOAuthCallback = async (req, res) => {
   try {
     const { code, state } = req.query;
+    const squareBase = process.env.SQUARE_BASE_URL || 'https://connect.squareupsandbox.com';
     
     if (!code || !state) {
       return res.status(400).json({
@@ -1558,20 +1623,19 @@ exports.handleSquareOAuthCallback = async (req, res) => {
     
     // Exchange code for access token
     const axios = require('axios');
-    const tokenResponse = await axios.post('https://connect.squareupsandbox.com/oauth2/token', {
+    const tokenResponse = await axios.post(`${squareBase}/oauth2/token`, {
       client_id: process.env.SQUARE_APPLICATION_ID,
       client_secret: process.env.SQUARE_CLIENT_SECRET,
       code: code,
       grant_type: 'authorization_code',
       redirect_uri: oauthState.redirectUri
     });
-    
+
     const { access_token, merchant_id } = tokenResponse.data;
-    
-    // Create wallet connection
-    const walletConnection = await walletService.connectWallet({
-      userId: oauthState.userId,
-      provider: 'square',
+
+    // Create wallet connection (use service API: connectWallet(userId, walletData))
+    const walletConnection = await walletService.connectWallet(oauthState.userId, {
+      provider: 'SQUARE',
       authCode: JSON.stringify({ accessToken: access_token, merchantId: merchant_id })
     });
     

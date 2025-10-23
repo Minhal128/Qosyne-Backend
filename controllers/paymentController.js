@@ -318,6 +318,16 @@ exports.payPalCallback = async (req, res) => {
     });
 
     if (existingWallet) {
+      // If the wallet is already linked to the same user who just completed OAuth,
+      // treat this as a success (idempotent) and return the existing DB record so
+      // the frontend can immediately show it as connected.
+      const requestingUserId = Number(state);
+      if (existingWallet.userId === requestingUserId) {
+        const successPayload = { name: userInfo.name, email: userInfo.email, paypalId: userInfo.payer_id, wallet: existingWallet };
+        return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_SUCCESS', successPayload, `${process.env.FRONTEND_URL}/paypal/callback?success=true&name=${encodeURIComponent(userInfo.name)}&email=${encodeURIComponent(userInfo.email)}&paypalId=${encodeURIComponent(userInfo.payer_id)}`));
+      }
+
+      // Otherwise the PayPal account is linked to a different user — keep existing error behavior
       return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', { error: 'Account already linked' }, `${process.env.FRONTEND_URL}/paypal/callback?success=false&error=This%20PayPal%20account%20is%20already%20linked`));
     }
 

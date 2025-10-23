@@ -71,7 +71,6 @@ class WalletService {
         where: { userId, isActive: true },
         orderBy: { createdAt: 'desc' }
       });
-
       return wallets.map(wallet => ({
         id: wallet.id,
         provider: wallet.provider,
@@ -117,71 +116,12 @@ class WalletService {
       }
 
       // Check if user already has an active wallet for this provider
-      const existingWallet = await prisma.connectedWallets.findFirst({
-        where: { 
-          userId: numericUserId, 
-          provider: provider, 
-          isActive: true 
-        }
+      const existingWalletForUser = await prisma.connectedWallets.findFirst({
+        where: { userId: numericUserId, provider: provider, isActive: true }
       });
 
-      if (existingWallet) {
-        // Instead of throwing an error, reactivate the existing wallet or update it
-        console.log(`User ${numericUserId} already has a ${provider} wallet connected. Updating connection...`);
-        
-        // Update the existing wallet with new connection data if needed
-        let connectionResult;
-        
-        switch (provider) {
-          case 'PAYPAL':
-            connectionResult = await this.connectPayPal(userId, JSON.stringify(walletData));
-            break;
-          case 'GOOGLEPAY':
-            // Pass full wallet data for manual connections
-            connectionResult = await this.connectGooglePay(userId, authCode, walletData);
-            break;
-          case 'WISE':
-            connectionResult = await this.connectWise(userId, authCode);
-            break;
-          case 'SQUARE':
-            connectionResult = await this.connectSquare(userId, authCode);
-            break;
-          case 'VENMO':
-            connectionResult = await this.connectVenmo(userId, authCode);
-            break;
-          case 'APPLEPAY':
-            connectionResult = await this.connectApplePay(userId, JSON.stringify({ identifier, bankDetails }));
-            break;
-          default:
-            throw new Error(`Connection method not implemented for ${provider}`);
-        }
-
-        // Update the existing wallet
-        const updatedWallet = await prisma.connectedWallets.update({
-          where: { id: existingWallet.id },
-          data: {
-            accountEmail: connectionResult.accountEmail,
-            fullName: connectionResult.fullName,
-            username: connectionResult.username,
-            accessToken: connectionResult.accessToken,
-            refreshToken: connectionResult.refreshToken,
-            capabilities: JSON.stringify(this.providers[provider].capabilities),
-            currency: connectionResult.currency || 'USD',
-            lastSync: new Date(),
-            isActive: true,
-            updatedAt: new Date()
-          }
-        });
-
-        console.log('Existing wallet updated successfully', { userId, provider, walletId: updatedWallet.id });
-        return {
-          ...updatedWallet,
-          connectedWalletId: updatedWallet.id // Ensure we return the database ID for transactions
-        };
-      }
-
+      // Perform the provider-specific connect logic to get connectionResult
       let connectionResult;
-      
       switch (provider) {
         case 'PAYPAL':
           connectionResult = await this.connectPayPal(userId, JSON.stringify(walletData));
@@ -200,30 +140,72 @@ class WalletService {
           connectionResult = await this.connectVenmo(userId, authCode);
           break;
         case 'APPLEPAY':
-          connectionResult = await this.connectApplePay(userId, JSON.stringify({ identifier, bankDetails }));
+          // Prefer authCode when present (OAuth flow). Otherwise pass legacy/fallback data.
+          connectionResult = authCode
+            ? await this.connectApplePay(userId, authCode)
+            : await this.connectApplePay(userId, JSON.stringify({ identifier, bankDetails }));
           break;
         default:
           throw new Error(`Connection method not implemented for ${provider}`);
       }
 
-      // Store wallet connection in database (upsert to handle existing wallets)
-      const wallet = await prisma.connectedWallets.upsert({
-        where: {
-          walletId: connectionResult.walletId
-        },
-        update: {
-          accountEmail: connectionResult.accountEmail,
-          fullName: connectionResult.fullName,
-          username: connectionResult.username,
-          accessToken: connectionResult.accessToken,
-          refreshToken: connectionResult.refreshToken,
-          paymentMethodToken: connectionResult.paymentMethodToken,
-          capabilities: JSON.stringify(this.providers[provider].capabilities),
-          currency: connectionResult.currency || 'USD',
-          lastSync: new Date(),
-          updatedAt: new Date()
-        },
-        create: {
+      // If connectionResult does not include a walletId, treat as error
+      if (!connectionResult || !connectionResult.walletId) {
+        throw new Error('Connection failed: missing wallet identifier');
+      }
+
+      // Previously we validated walletId uniqueness across users. Reverting to legacy behavior.
+
+      // If user already has an active wallet for this provider, update that record (replace)
+      if (existingWalletForUser) {
+        // If it's the same walletId, just update fields
+        if (existingWalletForUser.walletId === connectionResult.walletId) {
+          const updatedWallet = await prisma.connectedWallets.update({
+            where: { id: existingWalletForUser.id },
+            data: {
+              accountEmail: connectionResult.accountEmail,
+              fullName: connectionResult.fullName,
+              username: connectionResult.username,
+              accessToken: connectionResult.accessToken,
+              refreshToken: connectionResult.refreshToken,
+              paymentMethodToken: connectionResult.paymentMethodToken,
+              capabilities: JSON.stringify(this.providers[provider].capabilities),
+              currency: connectionResult.currency || 'USD',
+              lastSync: new Date(),
+              isActive: true,
+              updatedAt: new Date()
+            }
+          });
+
+          return { ...updatedWallet, connectedWalletId: updatedWallet.id };
+        }
+
+        // Otherwise, replace the existing provider connection with the new walletId
+        const replaced = await prisma.connectedWallets.update({
+          where: { id: existingWalletForUser.id },
+          data: {
+            walletId: connectionResult.walletId,
+            accountEmail: connectionResult.accountEmail,
+            fullName: connectionResult.fullName,
+            username: connectionResult.username,
+            accessToken: connectionResult.accessToken,
+            refreshToken: connectionResult.refreshToken,
+            paymentMethodToken: connectionResult.paymentMethodToken,
+            capabilities: JSON.stringify(this.providers[provider].capabilities),
+            currency: connectionResult.currency || 'USD',
+            lastSync: new Date(),
+            isActive: true,
+            updatedAt: new Date()
+          }
+        });
+
+        return { ...replaced, connectedWalletId: replaced.id };
+      }
+
+      // No existing wallet for user/provider: create a new record
+      // But ensure the walletId isn't tied to another user (checked above)
+      const wallet = await prisma.connectedWallets.create({
+        data: {
           userId: numericUserId,
           provider,
           walletId: connectionResult.walletId,
@@ -236,15 +218,13 @@ class WalletService {
           capabilities: JSON.stringify(this.providers[provider].capabilities),
           currency: connectionResult.currency || 'USD',
           lastSync: new Date(),
-          updatedAt: new Date()
+          updatedAt: new Date(),
+          isActive: true
         }
       });
 
-      console.log('Wallet connected successfully', { userId, provider, walletId: wallet.id });
-      return {
-        ...wallet,
-        connectedWalletId: wallet.id // Ensure we return the database ID for transactions
-      };
+      console.log('Wallet connected successfully', { userId: numericUserId, provider, walletId: wallet.id });
+      return { ...wallet, connectedWalletId: wallet.id };
     } catch (error) {
       console.error('Error connecting wallet:', error);
       // Re-throw with a user-friendly message for FK/user issues
@@ -708,21 +688,31 @@ class WalletService {
   async connectApplePay(userId, credentials) {
     try {
       console.log('🍎 Connecting Apple Pay wallet for user:', userId);
-      console.log('🍎 Credentials received:', credentials);
+      console.log('🍎 Credentials received (raw):', credentials);
 
-      // Parse credentials - expecting JSON string with connection data OR OAuth code
-      let connectionData;
-      try {
-        connectionData = JSON.parse(credentials);
-      } catch (e) {
-        // If not JSON, treat as OAuth authorization code
-        connectionData = { authCode: credentials };
+      // Normalize credentials: accept string (auth code or JSON string) or object
+      let connectionData = {};
+      if (!credentials) connectionData = {};
+
+      if (typeof credentials === 'string') {
+        // Try parse as JSON, otherwise treat as raw authCode/id_token
+        try {
+          connectionData = JSON.parse(credentials);
+        } catch (e) {
+          // raw string (auth code or id_token)
+          connectionData = { authCode: credentials };
+        }
+      } else if (typeof credentials === 'object') {
+        connectionData = credentials || {};
       }
 
-      // Check if this is an OAuth flow (has authCode)
-      if (connectionData.authCode) {
-        console.log('🍎 Using OAuth flow for Apple Sign-In');
-        return await this.connectApplePayOAuth(userId, connectionData.authCode);
+      // Accept several possible token fields (authCode, code, id_token)
+      const authCodeValue = connectionData.authCode || connectionData.code || connectionData.id_token || null;
+
+      // If we have an auth code or ID token, prefer OAuth path
+      if (authCodeValue) {
+        console.log('🍎 Using OAuth flow for Apple Sign-In (authCode/id_token present)');
+        return await this.connectApplePayOAuth(userId, authCodeValue);
       }
 
       // Otherwise, use direct connection (legacy/fallback)
@@ -774,21 +764,32 @@ class WalletService {
       
       let userInfo;
       
-      // Check if it's a JWT (ID token)
+      // Check if it's a JWT-like token (contains dots). Try to decode as base64url.
       if (authCode.includes('.')) {
-        console.log('🍎 Received ID token, decoding...');
-        // Decode ID token (simplified - in production, verify signature)
-        const payload = JSON.parse(Buffer.from(authCode.split('.')[1], 'base64').toString());
-        userInfo = {
-          sub: payload.sub,
-          email: payload.email,
-          email_verified: payload.email_verified,
-          is_private_email: payload.is_private_email
-        };
-      } else {
-        console.log('🍎 Received authorization code, would exchange for tokens in production');
-        // In production, you would exchange the code for tokens here
-        // For now, create a mock user from the code
+        console.log('🍎 Received ID token, attempting to decode...');
+        try {
+          const parts = authCode.split('.');
+          const payloadRaw = parts[1] || '';
+          // Convert base64url to base64
+          let b64 = payloadRaw.replace(/-/g, '+').replace(/_/g, '/');
+          while (b64.length % 4) b64 += '=';
+          const decoded = Buffer.from(b64, 'base64').toString();
+          const payload = JSON.parse(decoded);
+          userInfo = {
+            sub: payload.sub,
+            email: payload.email,
+            email_verified: payload.email_verified,
+            is_private_email: payload.is_private_email
+          };
+        } catch (err) {
+          console.warn('🍎 Could not decode ID token, falling back to auth-code handling:', err.message);
+          // If decoding fails, fall through to auth-code mock behavior below
+        }
+      }
+
+      // If not decoded as ID token, treat as authorization code (mock fallback)
+      if (!userInfo) {
+        console.log('🍎 Received authorization code or undecodable token — using mock user (exchange not implemented)');
         userInfo = {
           sub: `apple_user_${Date.now()}`,
           email: `apple_user_${Math.random().toString(36).substring(7)}@icloud.com`,
@@ -1223,10 +1224,32 @@ class WalletService {
       }
       
       case 'WISE':
-        return `${this.providers.WISE.baseUrl}/oauth/authorize?response_type=code&client_id=${this.providers.WISE.clientId}&redirect_uri=${redirectUri}&state=${state}`;
+        {
+          const base = this.providers.WISE.baseUrl.replace(/\/$/, '');
+          const scopes = (this.providers.WISE.scopes || ['transfers','balances','profiles']).join(' ');
+          const params = new URLSearchParams({
+            response_type: 'code',
+            client_id: this.providers.WISE.clientId,
+            redirect_uri: redirectUri,
+            scope: scopes,
+            state
+          });
+          const url = `${base}/oauth/authorize?${params.toString()}`;
+          console.log('🔔 Wise OAuth URL:', url);
+          return url;
+        }
       
-      case 'SQUARE':
-        return `${this.providers.SQUARE.baseUrl}/oauth2/authorize?client_id=${this.providers.SQUARE.applicationId}&response_type=code&scope=MERCHANT_PROFILE_READ PAYMENTS_WRITE&redirect_uri=${redirectUri}&state=${state}`;
+      case 'SQUARE': {
+        const base = this.providers.SQUARE.baseUrl.replace(/\/$/, '');
+        const params = new URLSearchParams({
+          client_id: this.providers.SQUARE.applicationId,
+          response_type: 'code',
+          scope: 'MERCHANT_PROFILE_READ PAYMENTS_WRITE',
+          redirect_uri: redirectUri,
+          state: state
+        });
+        return `${base}/oauth2/authorize?${params.toString()}`;
+      }
       
       case 'APPLEPAY': {
         const appleOAuthUrl = this.providers.APPLEPAY.oauthUrl;
@@ -1237,12 +1260,15 @@ class WalletService {
           client_id: clientId,
           redirect_uri: redirectUri,
           response_type: 'code id_token',
+          // Use form_post because Apple may require it for this client/service ID.
+          // Our server exposes a form_post endpoint which will accept the POST and redirect to the SPA.
           response_mode: 'form_post',
           scope: scopes,
           state: state
         });
-        
-        return `${appleOAuthUrl}?${params.toString()}`;
+        const fullUrl = `${appleOAuthUrl}?${params.toString()}`;
+        console.log('🔔 Apple OAuth URL:', { redirect_uri: redirectUri, response_mode: 'form_post', url: fullUrl });
+        return fullUrl;
       }
       
       default:

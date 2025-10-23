@@ -23,9 +23,6 @@ router.get('/balance', authMiddleware, rapydController.getRapydWalletBalance);
 // Connect wallet via OAuth (Venmo, PayPal, Square)
 router.post('/connect/:provider', authMiddleware, rapydController.connectWalletOAuth);
 
-// Connect Wise wallet with bank details (manual)
-router.post('/connect/wise/bank', authMiddleware, rapydController.connectWiseWallet);
-
 // Connect Square wallet with card details (direct)
 router.post('/connect/square/card', authMiddleware, async (req, res) => {
   try {
@@ -380,6 +377,15 @@ router.get('/callback/paypal', async (req, res) => {
     });
 
     if (existingWallet) {
+      // If the wallet already exists and belongs to the same user, return success with the existing record
+      if (existingWallet.userId === userId) {
+        return res.status(200).json({
+          data: { wallet: existingWallet },
+          message: 'PayPal account already linked to this user (idempotent)'
+        });
+      }
+
+      // Otherwise it's linked to another user: keep existing behavior (error)
       return res.status(400).json({
         error: 'PayPal account already linked',
         status_code: 400
@@ -466,10 +472,17 @@ router.get('/callback/square', async (req, res) => {
     // Process Square OAuth
     const axios = require('axios');
     
+    // Determine Square base URL
+    const squareBase = process.env.SQUARE_BASE_URL || (
+      process.env.SQUARE_APPLICATION_ID && process.env.SQUARE_APPLICATION_ID.startsWith('sandbox-')
+        ? 'https://connect.squareupsandbox.com'
+        : 'https://connect.squareup.com'
+    );
+
     // Exchange code for access token
-    const tokenResponse = await axios.post('https://connect.squareupsandbox.com/oauth2/token', {
+    const tokenResponse = await axios.post(`${squareBase}/oauth2/token`, {
       client_id: process.env.SQUARE_APPLICATION_ID,
-      client_secret: process.env.SQUARE_ACCESS_TOKEN, // This should be client secret
+      client_secret: process.env.SQUARE_CLIENT_SECRET || process.env.SQUARE_ACCESS_TOKEN,
       code: code,
       grant_type: 'authorization_code',
       redirect_uri: `${process.env.BACKEND_URL}/api/rapyd/callback/square`
