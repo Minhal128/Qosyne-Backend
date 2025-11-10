@@ -280,6 +280,7 @@ class WalletService {
               fullName: connectionResult.fullName,
               username: connectionResult.username,
               accessToken: connectionResult.accessToken,
+              clientToken: connectionResult.clientToken || null,
               refreshToken: connectionResult.refreshToken,
               paymentMethodToken: connectionResult.paymentMethodToken,
               capabilities: JSON.stringify(
@@ -322,6 +323,7 @@ class WalletService {
           fullName: connectionResult.fullName,
           username: connectionResult.username,
           accessToken: connectionResult.accessToken,
+          clientToken: connectionResult.clientToken || null,
           refreshToken: connectionResult.refreshToken,
           paymentMethodToken: connectionResult.paymentMethodToken,
           capabilities: JSON.stringify(this.providers[provider].capabilities),
@@ -756,9 +758,11 @@ class WalletService {
           fullName: `${profile.details?.firstName || "Wise"} ${profile.details?.lastName || "User"}`,
           username: swift_number,
           accessToken: this.providers.WISE.apiToken,
+          clientToken: this.providers.WISE.apiToken, // For Flutter integration
           refreshToken: null,
           currency: primaryBalance?.currency || "USD",
           balance: primaryBalance?.amount?.value || 0,
+          profileId: profile.id,
         };
       } catch (apiError) {
         const wiseUser = {
@@ -774,9 +778,11 @@ class WalletService {
           fullName: `${wiseUser.firstName} ${wiseUser.lastName}`,
           username: swift_number,
           accessToken: this.providers.WISE.apiToken,
+          clientToken: this.providers.WISE.apiToken, // For Flutter integration
           refreshToken: null,
           currency: country === "GB" ? "GBP" : country === "EU" ? "EUR" : "USD",
           balance: 0,
+          profileId: wiseUser.id,
         };
       }
     } catch (error) {
@@ -1076,12 +1082,25 @@ class WalletService {
         }
       }
 
+      // Generate Braintree client token for Flutter integration
+      let clientToken = null;
+      try {
+        const clientTokenResponse = await gateway.clientToken.generate({
+          customerId: customer.id
+        });
+        clientToken = clientTokenResponse.clientToken;
+        console.log('✅ Generated Braintree client token for Venmo customer');
+      } catch (error) {
+        console.warn('⚠️ Failed to generate client token:', error.message);
+      }
+
       return {
         walletId: `venmo_${userId}_${customer.id}`,
         accountEmail: customer.email,
         fullName: `${customer.firstName} ${customer.lastName}`,
         username: customerInfo?.username || customer.email,
         accessToken: customer.id,
+        clientToken: clientToken,
         refreshToken: null,
         currency: "USD",
         balance: 0,
