@@ -22,6 +22,7 @@ const rapydRoutes = require("./routes/rapydRoutes");
 const applePayRoutes = require("./routes/applePayRoutes");
 const unifiedTransactionRoutes = require("./routes/unifiedTransactionRoutes");
 const sandboxMonitorRoutes = require("./routes/sandboxMonitorRoutes");
+const squareInvoiceRoutes = require("./routes/squareInvoiceRoutes");
 
 const prisma = new PrismaClient({
   log: ["query", "info", "warn", "error"], // Enables Prisma query logging for debugging
@@ -99,6 +100,8 @@ app.use("/api", applePayRoutes);
 app.use("/api/transactions", unifiedTransactionRoutes);
 // Sandbox monitoring dashboard routes
 app.use("/api/sandbox", sandboxMonitorRoutes);
+// Square invoice routes
+app.use("/api/square-invoice", squareInvoiceRoutes);
 
 // Root route (must be before QR display routes)
 app.get("/", async (req, res) => {
