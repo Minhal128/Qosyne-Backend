@@ -453,16 +453,11 @@ exports.getSelectedWallet = async (req, res) => {
     const userId = req.user.userId;
 
     // Since selectedWalletType/selectedWalletId fields are removed,
-    // return the first active connected wallet as default
-    const connectedWallets = await prisma.connectedWallets.findMany({
-      where: { 
-        userId: userId,
-        isActive: true 
-      },
-      orderBy: { createdAt: 'asc' }
-    });
+    // use walletService to fetch the user's deduped wallets and return the first active one
+    const walletService = require('../services/walletService');
+    const connectedWallets = await walletService.getUserWallets(userId);
 
-    if (connectedWallets.length === 0) {
+    if (!connectedWallets || connectedWallets.length === 0) {
       return res.status(404).json({
         message: 'No connected wallets found',
         status_code: 404,
@@ -474,7 +469,7 @@ exports.getSelectedWallet = async (req, res) => {
     res.status(200).json({
       message: 'Selected wallet retrieved successfully',
       data: {
-        walletType: defaultWallet.provider.toLowerCase(),
+        walletType: (defaultWallet.provider || '').toLowerCase(),
         walletId: defaultWallet.walletId,
         walletDetails: {
           id: defaultWallet.id,

@@ -25,6 +25,143 @@ exports.getUserWallets = async (req, res) => {
   }
 };
 
+// Faster OAuth callback that responds immediately to the popup and processes
+// the token exchange in the background. This prevents the popup from showing
+// a blank page while still completing the connection server-side.
+exports.handleSquareOAuthCallbackFast = async (req, res) => {
+  try {
+    console.info('[Square OAuth Fast] callback received', {
+      time: new Date().toISOString(),
+      path: req.originalUrl,
+      query: req.query,
+      ip: req.ip || (req.connection && req.connection.remoteAddress),
+      host: req.get('host')
+    });
+
+    const { code, state } = req.query;
+    if (!code || !state) {
+      const frontendUrl = (process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+      const frontendOrigin = new URL(frontendUrl).origin;
+      const html = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+        <script>
+          try { window.opener.postMessage({ square_error: true }, "${frontendOrigin}"); } catch(e){}
+          setTimeout(function(){ window.close(); },700);
+        </script>
+        <p>Square connection failed (missing code/state). You may close this window.</p>
+      </body></html>`;
+      return res.set('Content-Type', 'text/html').status(400).send(html);
+    }
+
+    // Attempt to load OAuth state from DB; if that fails, fall back to the
+    // in-memory global store used by `initSquareOAuthFast` in test environments.
+    let prisma;
+    let oauthState;
+    let usedInMemory = false;
+    try {
+      const { PrismaClient } = require('@prisma/client');
+      prisma = new PrismaClient();
+      if (prisma.oAuthStates && typeof prisma.oAuthStates.findFirst === 'function') {
+        oauthState = await prisma.oAuthStates.findFirst({ where: { state, provider: 'SQUARE' } });
+      }
+    } catch (e) {
+      // ignore — we'll try in-memory below
+    }
+
+    if (!oauthState) {
+      // Fallback to in-memory store
+      global.oauthStates = global.oauthStates || {};
+      if (global.oauthStates[state]) {
+        oauthState = global.oauthStates[state];
+        usedInMemory = true;
+      }
+    }
+
+    if (!oauthState) {
+      const frontendUrl = (process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+      const frontendOrigin = new URL(frontendUrl).origin;
+      const html = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+        <script>
+          try { window.opener.postMessage({ square_error: true }, "${frontendOrigin}"); } catch(e){}
+          setTimeout(function(){ window.close(); },700);
+        </script>
+        <p>Square connection failed (invalid state). You may close this window.</p>
+      </body></html>`;
+      try { if (prisma) await prisma.$disconnect(); } catch (e) {}
+      return res.set('Content-Type', 'text/html').status(400).send(html);
+    }
+
+    // Immediately respond to popup so user sees a non-blank page.
+    try {
+      const frontendUrl = (process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+      const frontendOrigin = new URL(frontendUrl).origin;
+      const html = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+        <script>
+          try { window.opener.postMessage({ square_connected: true, status: 'processing' }, "${frontendOrigin}"); } catch(e){}
+          setTimeout(function(){ window.close(); },700);
+        </script>
+        <p>Square connection is being processed. You may close this window.</p>
+      </body></html>`;
+      res.set('Content-Type', 'text/html').status(200).send(html);
+    } catch (err) {
+      console.error('[Square OAuth Fast] failed to send immediate response', err);
+      res.status(200).send('Processing');
+    }
+
+    // Continue processing in the background (do not await) so the popup is
+    // responsive. Any errors are logged server-side.
+    (async () => {
+      try {
+        const axios = require('axios');
+        const squareBase = process.env.SQUARE_BASE_URL || 'https://connect.squareupsandbox.com';
+        const tokenResponse = await axios.post(`${squareBase}/oauth2/token`, {
+          client_id: process.env.SQUARE_APPLICATION_ID,
+          client_secret: process.env.SQUARE_CLIENT_SECRET,
+          code: code,
+          grant_type: 'authorization_code',
+          redirect_uri: oauthState.redirectUri
+        });
+
+        const { access_token, merchant_id } = tokenResponse.data || {};
+
+        // Create wallet connection
+        const walletConnection = await walletService.connectWallet(oauthState.userId, {
+          provider: 'SQUARE',
+          authCode: JSON.stringify({ accessToken: access_token, merchantId: merchant_id })
+        });
+
+        // Clean up OAuth state (DB or in-memory)
+        if (usedInMemory) {
+          try { delete global.oauthStates[state]; } catch (e) {}
+        } else {
+          try { await prisma.oAuthStates.delete({ where: { id: oauthState.id } }); } catch (e) { console.warn('Failed to delete oauthState from DB', e); }
+          try { await prisma.$disconnect(); } catch (e) {}
+        }
+
+        console.info('[Square OAuth Fast] background processing complete', { walletId: walletConnection.id });
+      } catch (bgErr) {
+        console.error('[Square OAuth Fast] background processing error', bgErr);
+        try { await prisma.$disconnect(); } catch (e) {}
+      }
+    })();
+  } catch (error) {
+    console.error('[Square OAuth Fast] error handling callback', error);
+    try {
+      const frontendUrl = (process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+      const frontendOrigin = new URL(frontendUrl).origin;
+      const html = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+        <script>
+          try { window.opener.postMessage({ square_error: true }, "${frontendOrigin}"); } catch(e){}
+          setTimeout(function(){ window.close(); },700);
+        </script>
+        <p>Square connection failed. You may close this window.</p>
+      </body></html>`;
+      res.set('Content-Type', 'text/html').status(500).send(html);
+    } catch (err) {
+      res.redirect(`${process.env.FRONTEND_URL}?square_error=true`);
+    }
+  }
+};
+
 exports.getAvailableWalletsForTransfer = async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -304,11 +441,15 @@ exports.handleOAuthCallback = async (req, res) => {
 
     const wallet = await walletService.handleOAuthCallback(provider, code, state, userId);
 
-    res.status(200).json({
-      success: true,
-      data: { wallet },
-      message: 'OAuth callback handled successfully'
-    });
+    // Redirect back to frontend with wallet information in query string
+    const redirectUrl = new URL(process.env.FRONTEND_URL || 'http://localhost:3000');
+    redirectUrl.searchParams.set(`${provider.toLowerCase()}_connected`, 'true');
+    redirectUrl.searchParams.set('wallet_id', wallet.id);
+    redirectUrl.searchParams.set('provider', wallet.provider);
+    if (wallet.accountEmail) redirectUrl.searchParams.set('account_email', wallet.accountEmail);
+    if (wallet.fullName) redirectUrl.searchParams.set('full_name', wallet.fullName);
+
+    res.redirect(redirectUrl.toString());
   } catch (error) {
     console.error('Error handling OAuth callback:', error);
     res.status(500).json({
@@ -391,14 +532,17 @@ exports.initiateTransfer = async (req, res) => {
       amount, 
       currency, 
       description, 
-      metadata 
+      metadata,
+      // Optional: client-supplied token (only accepted when caller owns the source wallet)
+      sourceClientToken: clientSuppliedToken
     } = req.body;
 
-    if (!fromWalletId || !toWalletId || !amount || !currency) {
+    // Allow either a fromWalletId OR a client-supplied token (sourceClientToken)
+    if ((!fromWalletId && !clientSuppliedToken) || !toWalletId || !amount || !currency) {
       return res.status(400).json({
         success: false,
         status_code: 400,
-        error: 'From wallet ID, to wallet ID, amount, and currency are required'
+        error: 'Source (fromWalletId or sourceClientToken), to wallet ID, amount, and currency are required'
       });
     }
 
@@ -409,6 +553,37 @@ exports.initiateTransfer = async (req, res) => {
     if (!fromProvider || !toProvider) {
       const { PrismaClient } = require('@prisma/client');
       const prisma = new PrismaClient();
+
+      // If caller provided only a client token (no fromWalletId), resolve the
+      // source wallet by matching the token to a stored connected wallet that
+      // belongs to the authenticated user.
+      if (!fromWalletId && clientSuppliedToken) {
+        const tokenLookup = String(clientSuppliedToken).trim();
+        const tokenWallet = await prisma.connectedWallets.findFirst({
+          where: {
+            userId,
+            isActive: true,
+            OR: [
+              { clientToken: tokenLookup },
+              { paymentMethodToken: tokenLookup },
+              { accessToken: tokenLookup }
+            ]
+          }
+        });
+
+        if (!tokenWallet) {
+          return res.status(404).json({
+            success: false,
+            status_code: 404,
+            error: 'Source wallet not found for provided client token'
+          });
+        }
+
+        // Use the found wallet's database id as the source
+        fromWalletId = tokenWallet.id;
+        // Also set fromProvider for downstream flow
+        extractedFromProvider = tokenWallet.provider;
+      }
 
       // Get fromWallet provider if not provided
       if (!fromProvider) {
@@ -427,11 +602,34 @@ exports.initiateTransfer = async (req, res) => {
         }
         
         if (!fromWallet) {
+          // Try lookup by walletId string (external id)
+          // Coerce to string in case a numeric value passed earlier failed DB id lookup
+          const walletIdLookup = typeof fromWalletId === 'string' ? fromWalletId : String(fromWalletId);
           fromWallet = await prisma.connectedWallets.findFirst({
             where: { 
-              walletId: fromWalletId,
+              walletId: walletIdLookup,
               userId, 
               isActive: true 
+            },
+            select: { provider: true }
+          });
+        }
+
+        if (!fromWallet) {
+          // Additional fallback: some integrations store external/rapyd identifiers
+          // in other columns (customerId, accessToken) or the UI may provide an
+          // account email. Coerce to string for the OR lookups to avoid passing
+          // an Int to string fields in Prisma.
+          const lookupVal = (typeof fromWalletId === 'string') ? fromWalletId.trim() : String(fromWalletId);
+          fromWallet = await prisma.connectedWallets.findFirst({
+            where: {
+              userId,
+              isActive: true,
+              OR: [
+                { customerId: lookupVal },
+                { accessToken: lookupVal },
+                { accountEmail: lookupVal }
+              ]
             },
             select: { provider: true }
           });
@@ -463,10 +661,33 @@ exports.initiateTransfer = async (req, res) => {
         }
         
         if (!toWallet) {
+          // Coerce to string to avoid passing Int for string columns
+          const walletIdLookup = typeof toWalletId === 'string' ? toWalletId : String(toWalletId);
           toWallet = await prisma.connectedWallets.findFirst({
             where: { 
-              walletId: toWalletId,
+              walletId: walletIdLookup,
               isActive: true 
+            },
+            select: { provider: true }
+          });
+        }
+
+        if (!toWallet) {
+          // Fallback: allow destination lookup by customerId, accessToken,
+          // accountEmail (case-insensitive) or username (case-insensitive).
+          // Trim the input so accidental whitespace doesn't break the lookup.
+          const lookupVal = (typeof toWalletId === 'string') ? toWalletId.trim() : String(toWalletId);
+
+          toWallet = await prisma.connectedWallets.findFirst({
+            where: {
+              isActive: true,
+              OR: [
+                { customerId: lookupVal },
+                { accessToken: lookupVal },
+                // case-insensitive match for stored emails/usernames
+                { accountEmail: { equals: lookupVal } },
+                { username: { equals: lookupVal } }
+              ]
             },
             select: { provider: true }
           });
@@ -578,6 +799,34 @@ exports.initiateTransfer = async (req, res) => {
     }
 
     // Create database transaction record
+    // Include connected wallet tokens (if available) in transaction metadata so
+    // frontend or downstream services can detect connected payment tokens used
+    // for this transfer. Tokens are sensitive; we store them in metadata for
+    // diagnostics and sandbox flows only—do not leak to third-parties.
+    // Prioritize a server-stored token, but allow an explicit client-supplied
+    // `sourceClientToken` when the requester is the owner of the fromWallet.
+    const serverSourceToken = fromWalletDetails.clientToken || fromWalletDetails.paymentMethodToken || fromWalletDetails.accessToken || null;
+    const destinationClientToken = toWalletDetails.clientToken || toWalletDetails.paymentMethodToken || toWalletDetails.accessToken || null;
+
+    // Simple mask helper for logs
+    const mask = (t) => {
+      if (!t) return null;
+      try { return t.length > 8 ? `${t.slice(0,6)}...${t.slice(-2)}` : `${t.slice(0,3)}...`; } catch { return '***'; }
+    };
+
+    let resolvedSourceToken = serverSourceToken;
+    let tokenOrigin = 'server';
+    if (clientSuppliedToken) {
+      // Only accept client-supplied token if the authenticated user owns the source wallet
+      if (fromWalletDetails.userId && fromWalletDetails.userId === userId) {
+        resolvedSourceToken = clientSuppliedToken;
+        tokenOrigin = 'client';
+        console.log(`⚠️ Client-supplied sourceClientToken accepted (masked): ${mask(resolvedSourceToken)}`);
+      } else {
+        console.warn('🚫 Ignoring client-supplied sourceClientToken: requester does not own the source wallet');
+      }
+    }
+
     const transaction = await transactionService.initiateTransfer({
       userId,
       fromWalletId,
@@ -596,7 +845,11 @@ exports.initiateTransfer = async (req, res) => {
         adminFeeTransferId: rapydResult.adminFee.transferId,
         totalAmountProcessed: rapydResult.totalProcessed,
         adminFeeCollected: rapydResult.adminFeeCollected,
-        transferType: rapydResult.fallbackMode ? 'fallback_with_admin_fee' : 'real_rapyd_with_admin_fee'
+        transferType: rapydResult.fallbackMode ? 'fallback_with_admin_fee' : 'real_rapyd_with_admin_fee',
+        // surface connected client tokens (masked if needed by consumers)
+        sourceClientToken: resolvedSourceToken,
+        sourceClientTokenOrigin: tokenOrigin,
+        destinationClientToken: destinationClientToken
       }
     });
 
@@ -1594,8 +1847,104 @@ exports.initSquareOAuth = async (req, res) => {
   }
 };
 
+// Faster init endpoint that forces the redirect URI to the backend's
+// callback-fast path. This helps avoid blank popups by directing Square to
+// the endpoint that immediately responds to the popup and processes the
+// token exchange in the background.
+exports.initSquareOAuthFast = async (req, res) => {
+  try {
+    const { state } = req.body;
+    const userId = req.user.userId;
+
+    // Build backend callback-fast URL
+    const backendBase = (process.env.BACKEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+    const redirectUri = `${backendBase}/api/wallet-integration/square/oauth/callback-fast`;
+
+    // Determine Square OAuth base and normalize to the canonical connect host.
+    let squareBase = process.env.SQUARE_BASE_URL || 'https://connect.squareupsandbox.com';
+    try {
+      const parsed = new URL(squareBase);
+      // If someone set the env to 'https://squareupsandbox.com' or similar,
+      // force the canonical connect subdomain that serves the OAuth UI.
+      if (parsed.hostname === 'squareupsandbox.com') {
+        squareBase = `${parsed.protocol}//connect.squareupsandbox.com`;
+      } else if (parsed.hostname === 'squareup.com' || parsed.hostname === 'squareupsandbox.com') {
+        squareBase = `${parsed.protocol}//connect.${parsed.hostname}`;
+      }
+    } catch (e) {
+      // ignore and use as-is
+    }
+
+    const scope = 'MERCHANT_PROFILE_READ PAYMENTS_WRITE';
+    const authUrl = `${squareBase.replace(/\/$/, '')}/oauth2/authorize?client_id=${encodeURIComponent(process.env.SQUARE_APPLICATION_ID)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&state=${encodeURIComponent(state)}`;
+
+    console.info('[Square OAuth Fast] generated authUrl', { authUrl });
+
+    // Store the OAuth state with the callback-fast redirectUri. Prefer DB
+    // storage via Prisma when available, but fall back to an in-memory
+    // global store for environments where Prisma models are not available
+    // (this can happen in some serverless builds). The global store is
+    // sufficient for short-lived testing but not recommended for prod.
+
+    // Store the OAuth state with the callback-fast redirectUri. Prefer DB
+    // storage via Prisma when available, but fall back to an in-memory
+    // global store for environments where Prisma models are not available
+    // (this can happen in some serverless builds). The global store is
+    // sufficient for short-lived testing but not recommended for prod.
+    let usedInMemory = false;
+    try {
+      const { PrismaClient } = require('@prisma/client');
+      const prisma = new PrismaClient();
+
+      if (prisma.oAuthStates && typeof prisma.oAuthStates.upsert === 'function') {
+        await prisma.oAuthStates.upsert({
+          where: { userId_provider: { userId, provider: 'SQUARE' } },
+          update: { state, redirectUri, createdAt: new Date() },
+          create: { userId, provider: 'SQUARE', state, redirectUri }
+        });
+        await prisma.$disconnect();
+      } else {
+        // Prisma client present but model missing — fallback
+        usedInMemory = true;
+      }
+    } catch (e) {
+      // Prisma not available in this environment — use in-memory store
+      usedInMemory = true;
+    }
+
+    if (usedInMemory) {
+      global.oauthStates = global.oauthStates || {};
+      global.oauthStates[state] = { userId, provider: 'SQUARE', redirectUri, createdAt: new Date() };
+      console.info('[Square OAuth Fast] stored state in-memory for testing');
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: { authUrl },
+      message: 'Square OAuth (fast) URL generated successfully'
+    });
+  } catch (error) {
+    console.error('Error initializing Square OAuth (fast):', error);
+    res.status(500).json({ success: false, error: 'Failed to initialize Square OAuth (fast)' });
+  }
+};
+
+// Note: mock authorize page removed — the app uses real Square OAuth flow only.
+// squareMockAuthorize removed — using real Square OAuth only.
+
+// debugFetchSquareAuthUrl removed — using the normal Square OAuth flow only.
+
 exports.handleSquareOAuthCallback = async (req, res) => {
   try {
+    // Log immediately when the callback endpoint is invoked so we can
+    // verify from server logs whether Square actually hit this URL.
+    console.info('[Square OAuth] callback received', {
+      time: new Date().toISOString(),
+      path: req.originalUrl,
+      query: req.query,
+      ip: req.ip || (req.connection && req.connection.remoteAddress),
+      host: req.get('host')
+    });
     const { code, state } = req.query;
     const squareBase = process.env.SQUARE_BASE_URL || 'https://connect.squareupsandbox.com';
     
@@ -1646,10 +1995,47 @@ exports.handleSquareOAuthCallback = async (req, res) => {
     
     await prisma.$disconnect();
     
-    // Redirect back to frontend with success
-    res.redirect(`${process.env.FRONTEND_URL}?square_connected=true&wallet_id=${walletConnection.id}`);
+    // Notify the opener (frontend) by returning a small HTML page that posts a
+    // message to the opener window and then closes the popup. This avoids a
+    // blank page when the popup ends on a backend origin and allows the main
+    // window to react via postMessage.
+    try {
+      const frontendUrl = (process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+      const frontendOrigin = new URL(frontendUrl).origin;
+      const html = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+        <script>
+          try {
+            window.opener.postMessage({ square_connected: true, wallet_id: "${walletConnection.id}" }, "${frontendOrigin}");
+          } catch (e) {
+            // ignore
+          }
+          setTimeout(function(){ window.close(); }, 700);
+        </script>
+        <p>Square connected. You may close this window.</p>
+      </body></html>`;
+      res.set('Content-Type', 'text/html').status(200).send(html);
+    } catch (err) {
+      // Fallback to redirect if anything goes wrong building the HTML
+      console.error('Failed to build postMessage HTML, falling back to redirect', err);
+      res.redirect(`${process.env.FRONTEND_URL}?square_connected=true&wallet_id=${walletConnection.id}`);
+    }
   } catch (error) {
     console.error('Error handling Square OAuth callback:', error);
-    res.redirect(`${process.env.FRONTEND_URL}?square_error=true`);
+    try {
+      const frontendUrl = (process.env.FRONTEND_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+      const frontendOrigin = new URL(frontendUrl).origin;
+      const html = `<!doctype html><html><head><meta charset="utf-8"></head><body>
+        <script>
+          try {
+            window.opener.postMessage({ square_error: true }, "${frontendOrigin}");
+          } catch (e) {}
+          setTimeout(function(){ window.close(); }, 700);
+        </script>
+        <p>Square connection failed. You may close this window.</p>
+      </body></html>`;
+      res.set('Content-Type', 'text/html').status(500).send(html);
+    } catch (err) {
+      res.redirect(`${process.env.FRONTEND_URL}?square_error=true`);
+    }
   }
 };

@@ -21,21 +21,30 @@ class RapydTransactionService {
       currency = 'USD',
       description = 'Money transfer via Qosyne',
       sourceWalletType = 'venmo', // venmo, wise, paypal, etc.
-      targetWalletType = 'wise'   // wise, venmo, paypal, etc.
+      targetWalletType = 'wise',  // wise, venmo, paypal, etc.
+      // Optional: token associated with the connected client (clientToken/paymentMethodToken/accessToken)
+      sourceWalletToken = null,
+      sourceWalletId = null,
+      sourceWalletProvider = null
     } = transferData;
 
     console.log(`💸 RAPYD TRANSFER: $${amount} ${currency} from ${sourceWalletType} to ${targetWalletType}`);
     console.log(`🎯 Target wallet: ${toWalletId}`);
 
     try {
-      // Step 1: Create Rapyd transfer transaction
+      // Step 1: Create Rapyd transfer transaction. Pass through the connected
+      // wallet token so sandbox/test providers can use it when creating the
+      // payment (for example, Braintree/Venmo tokens etc.).
       const rapydTransfer = await this.createRapydTransfer({
         amount,
         currency,
         description,
         sourceWalletType,
         targetWalletType,
-        toWalletId
+        toWalletId,
+        sourceWalletToken,
+        sourceWalletId,
+        sourceWalletProvider
       });
 
       // Step 2: Record transaction in database
@@ -97,6 +106,7 @@ class RapydTransactionService {
       sourceWalletType,
       targetWalletType,
       toWalletId
+      // sourceWalletToken may be provided for connected wallets
     } = transferData;
 
     try {
@@ -129,18 +139,27 @@ class RapydTransactionService {
       console.log('All available payment methods:', paymentMethods.map(m => m.type).slice(0, 5));
       
       // Create simple payment request (like working local script)
+      // Include source wallet token in the payment_method if provided so
+      // sandbox/testing providers can be instructed to use the connected
+      // client's token when creating the payment.
       const transferRequest = {
         amount: amount,
         currency: currency,
-        payment_method: {
+        payment_method: Object.assign({
           type: method.type
-        },
-        description: description || `Qosyne demo payment $${amount} - simulating transfer to ${toWalletId}`
+        }, (transferData.sourceWalletToken ? { token: transferData.sourceWalletToken } : {})),
+        description: description || `Qosyne demo payment $${amount} - simulating transfer to ${toWalletId}`,
+        metadata: Object.assign({}, (transferData.sourceWalletId ? { sourceWalletId: transferData.sourceWalletId } : {}), (transferData.sourceWalletProvider ? { sourceWalletProvider: transferData.sourceWalletProvider } : {}), (transferData.sourceWalletToken ? { connected_client_token: transferData.sourceWalletToken } : {}))
       };
       
       console.log('📦 Transfer Request Payload:');
       console.log(JSON.stringify(transferRequest, null, 2));
 
+      // Mask token when logging to avoid leaking secrets
+      if (transferData.sourceWalletToken) {
+        const t = transferData.sourceWalletToken;
+        console.log(`🔐 Using connected client token (masked): ${t.slice ? t.slice(0,6) + '...' : '<<token>>'}`);
+      }
       console.log('🔄 Creating Rapyd payment (like working script)...');
       const rapydResponse = await this.rapydClient.makeRequest('POST', '/v1/payments', transferRequest);
       

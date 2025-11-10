@@ -305,11 +305,24 @@ exports.payPalCallback = async (req, res) => {
     // Fetch user info from PayPal using the user access token
     let userInfo;
     try {
+      console.log('🔄 Fetching PayPal user info with token (first 20 chars):', userAccessToken?.substring(0, 20));
+      console.log('🔄 PayPal Base URL:', paymentGateway.paypalBaseUrl);
       userInfo = await paymentGateway.getUserInfo(userAccessToken);
       console.log('✅ PayPal user info fetched:', userInfo);
     } catch (err) {
       console.error('❌ Fetching PayPal user info failed:', err.response?.data || err.message || err);
-      return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', { error: 'Failed to fetch user info' }, `${process.env.FRONTEND_URL}/paypal/callback?success=false&error=${encodeURIComponent('Failed to fetch user info')}`));
+      console.error('❌ Error details:', JSON.stringify({
+        status: err.response?.status,
+        statusText: err.response?.statusText,
+        data: err.response?.data,
+        baseURL: paymentGateway.paypalBaseUrl,
+        endpoint: '/v1/identity/openidconnect/userinfo?schema=openid'
+      }));
+      return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', { 
+        error: 'Failed to fetch user info',
+        details: err.response?.data?.message || err.message,
+        status: err.response?.status 
+      }, `${process.env.FRONTEND_URL}/paypal/callback?success=false&error=${encodeURIComponent('Failed to fetch user info')}`));
     }
 
     const userId = parseInt(state, 10);
@@ -319,11 +332,20 @@ exports.payPalCallback = async (req, res) => {
 
     if (existingWallet) {
       // If the wallet is already linked to the same user who just completed OAuth,
-      // treat this as a success (idempotent) and return the existing DB record so
-      // the frontend can immediately show it as connected.
+      // update the token and treat this as a success (idempotent)
       const requestingUserId = Number(state);
       if (existingWallet.userId === requestingUserId) {
-        const successPayload = { name: userInfo.name, email: userInfo.email, paypalId: userInfo.payer_id, wallet: existingWallet };
+        // Update the access token and refresh token
+        const updatedWallet = await prisma.connectedWallets.update({
+          where: { id: existingWallet.id },
+          data: {
+            accessToken: userAccessToken,
+            refreshToken: tokenResponse.refresh_token || null,
+            isActive: true,
+            updatedAt: new Date(),
+          },
+        });
+        const successPayload = { name: userInfo.name, email: userInfo.email, paypalId: userInfo.payer_id, wallet: updatedWallet };
         return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_SUCCESS', successPayload, `${process.env.FRONTEND_URL}/paypal/callback?success=true&name=${encodeURIComponent(userInfo.name)}&email=${encodeURIComponent(userInfo.email)}&paypalId=${encodeURIComponent(userInfo.payer_id)}`));
       }
 
@@ -354,6 +376,8 @@ exports.payPalCallback = async (req, res) => {
           fullName: userInfo.name,
           username: userInfo.email,
           currency: currencyValue,
+          accessToken: userAccessToken,
+          refreshToken: tokenResponse.refresh_token || null,
           isActive: true,
           updatedAt: new Date(),
         },

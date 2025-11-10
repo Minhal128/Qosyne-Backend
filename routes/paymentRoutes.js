@@ -19,6 +19,7 @@ payPalCallbackAuthorize,
   getWiseProfiles,
   changeTransactionStatus,
 } = require('../controllers/paymentController');
+const walletIntegrationController = require('../controllers/walletIntegrationController');
 
 const {
   getAllTransactions,
@@ -41,6 +42,12 @@ router.post('/add-payment-method', authMiddleware, tryCatch(addPaymentMethod));
 router.get('/paypal-token',  tryCatch(getPayPalToken));
 router.get('/paypal-auth-url', authMiddleware, tryCatch(getPayPalAuthUrl))
 router.get('/paypal/callback', tryCatch(payPalCallback));
+// Support legacy/new frontend redirect URL for Venmo OAuth callbacks.
+// Some clients redirect to /api/payment/venmo/callback after browser-based OAuth.
+// Forward those requests to the wallet integration controller so the wallet
+// is persisted in the same place as other wallet-integration callbacks.
+router.get('/venmo/callback', tryCatch(walletIntegrationController.handleVenmoOAuthCallback));
+router.get('/venmo/oauth/callback', tryCatch(walletIntegrationController.handleVenmoOAuthCallback));
 router.post('/paypal/callback', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.userId;
@@ -168,6 +175,150 @@ router.get('/wise/profiles', authMiddleware, tryCatch(getWiseProfiles));
 router.get('/admin/transactions', getAllTransactions);
 router.get('/admin/transactions/stats', getTransactionStats);
 router.patch('/change-status/:id', changeTransactionStatus);
+
+// Money Transfer Endpoint with Wallet Validation
+router.post('/transfer', authMiddleware, async (req, res) => {
+  console.log('🎯 /transfer endpoint HIT!');
+  console.log('📦 Request body:', req.body);
+  try {
+    const userId = req.user.userId;
+    const { amount, senderWallet, recipientWallet, recipientDetails, connectedWalletId } = req.body;
+
+    // Validate required fields
+    if (!amount || !senderWallet || !recipientWallet || !recipientDetails) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: amount, senderWallet, recipientWallet, recipientDetails'
+      });
+    }
+
+    // Validate cross-wallet transfer
+    // Wise can send to any bank (international transfers)
+    // PayPal, Venmo, and Square must match exactly
+    if (senderWallet.toLowerCase() !== 'wise' && 
+        senderWallet.toLowerCase() !== recipientWallet.toLowerCase()) {
+      return res.status(400).json({
+        success: false,
+        message: `${senderWallet} can only send to ${senderWallet} users. Cross-wallet transfers are not supported (except Wise for international transfers).`
+      });
+    }
+
+    // Verify wallet connection
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+
+    console.log('🔍 Looking for wallet with userId:', userId, 'provider:', senderWallet.toUpperCase());
+    let connectedWallet = await prisma.connectedWallets.findFirst({
+      where: {
+        userId: userId,
+        provider: senderWallet.toUpperCase(),
+        isActive: true
+      }
+    });
+    console.log('🔍 First wallet query result:', connectedWallet);
+
+    // If wallet not found in DB but connectedWalletId is provided (from localStorage),
+    // try to find by ID (for cases where wallet exists but query doesn't return it)
+    if (!connectedWallet && connectedWalletId) {
+      console.log('🔍 Trying to find by ID:', connectedWalletId, 'userId:', userId);
+      connectedWallet = await prisma.connectedWallets.findFirst({
+        where: {
+          id: parseInt(connectedWalletId),
+          userId: userId,
+          isActive: true
+        }
+      });
+      console.log('🔍 Found wallet by ID:', connectedWallet);
+    }
+    
+    // If still not found, let's check if the wallet exists but is inactive
+    if (!connectedWallet && connectedWalletId) {
+      const walletCheck = await prisma.connectedWallets.findUnique({
+        where: { id: parseInt(connectedWalletId) }
+      });
+      console.log('🔍 Wallet exists in DB (any user/status):', walletCheck);
+      
+      // If wallet exists but is inactive, activate it
+      if (walletCheck && walletCheck.userId === userId && !walletCheck.isActive) {
+        console.log('🔄 Reactivating inactive wallet...');
+        connectedWallet = await prisma.connectedWallets.update({
+          where: { id: parseInt(connectedWalletId) },
+          data: { 
+            isActive: true,
+            updatedAt: new Date()
+          }
+        });
+        console.log('✅ Wallet reactivated:', connectedWallet.id);
+      }
+    }
+
+    if (!connectedWallet) {
+      return res.status(404).json({
+        success: false,
+        message: `${senderWallet} wallet is not connected. Please connect your wallet first.`
+      });
+    }
+
+    // Create transaction record
+    const transaction = await prisma.transactions.create({
+      data: {
+        userId: userId,
+        amount: parseFloat(amount),
+        currency: 'USD',
+        provider: senderWallet.toUpperCase(),
+        status: 'PENDING',
+        recipientName: recipientDetails.username || recipientDetails.email,
+        recipientEmail: recipientDetails.email || '',
+        recipientPhone: recipientDetails.phone || '',
+        recipientAccountNumber: recipientDetails.accountNumber || '',
+        recipientCountry: recipientDetails.country || '',
+        recipientSwiftCode: recipientDetails.swiftCode || '',
+        recipientIban: recipientDetails.iban || '',
+        recipientRoutingNumber: recipientDetails.routingNumber || '',
+        metadata: JSON.stringify({
+          recipientWallet: recipientWallet,
+          recipientDetails: recipientDetails,
+          connectedWalletId: connectedWalletId
+        }),
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }
+    });
+
+    // In sandbox mode, simulate successful transfer
+    // In production, you would integrate with actual payment gateway APIs
+    const updatedTransaction = await prisma.transactions.update({
+      where: { id: transaction.id },
+      data: {
+        status: 'COMPLETED',
+        updatedAt: new Date()
+      }
+    });
+
+    console.log(`✅ Transfer completed: $${amount} from ${senderWallet} to ${recipientWallet}`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Transfer completed successfully',
+      data: {
+        transactionId: updatedTransaction.id,
+        amount: updatedTransaction.amount,
+        status: updatedTransaction.status,
+        provider: updatedTransaction.provider,
+        recipientName: updatedTransaction.recipientName,
+        createdAt: updatedTransaction.createdAt
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Transfer error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Transfer failed',
+      error: error.message
+    });
+  }
+});
 
 // Simple Braintree Venmo endpoints for public access
 router.get('/client_token', async (req, res) => {

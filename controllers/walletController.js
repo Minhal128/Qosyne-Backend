@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const { calculateUserBalance } = require('../utils/walletUtils');
+const walletService = require('../services/walletService');
 
 const prisma = new PrismaClient();
 
@@ -62,22 +63,10 @@ exports.getConnectedWallets = async (req, res) => {
       });
     }
     
-    // Fetch user's external connected wallets from the new system
-    let externalWallets = await prisma.connectedWallets.findMany({
-      where: { userId: numericUserId, isActive: true },
-      orderBy: { createdAt: 'desc' }
-    });
-    
-    // Fallback: if none found, try without isActive filter to include legacy rows
-    if (externalWallets.length === 0) {
-      externalWallets = await prisma.connectedWallets.findMany({
-        where: { userId: numericUserId },
-        orderBy: { createdAt: 'desc' }
-      });
-    }
+    // Use walletService to fetch deduped wallets (includes clientToken when available)
+    const userWallets = await walletService.getUserWallets(numericUserId);
 
-    // Format the wallets for response
-    const wallets = externalWallets.map((cw) => ({
+    const wallets = userWallets.map((cw) => ({
       id: cw.id,
       provider: formatProviderName(cw.provider),
       type: 'EXTERNAL',
@@ -89,14 +78,15 @@ exports.getConnectedWallets = async (req, res) => {
       currency: cw.currency,
       isActive: cw.isActive,
       lastSync: cw.lastSync,
-      capabilities: cw.capabilities ? JSON.parse(cw.capabilities) : [],
+      capabilities: cw.capabilities ? cw.capabilities : [],
       connectionStatus: cw.isActive ? 'connected' : 'disconnected',
+      duplicateCount: cw.duplicateCount || 0,
+      clientToken: cw.clientToken || null,
       displayName: `${formatProviderName(cw.provider)} - ${cw.fullName || cw.username || cw.accountEmail}`
     }));
 
-    console.log(`Found ${wallets.length} connected wallets for user ${numericUserId}`);
+    console.log(`Found ${wallets.length} connected wallets for user ${numericUserId} (deduped)`);
 
-    // 4) Return combined wallets array
     res.status(200).json({
       data: wallets,
       message: 'Connected wallets fetched successfully',

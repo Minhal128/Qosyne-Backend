@@ -131,11 +131,18 @@ class PayPalGateway {
    */
   async getUserInfo(userAccessToken) {
     const instance = this.paypalAxiosInstance(userAccessToken);
-    // GET /v1/identity/openidconnect/userinfo?schema=openid
-    const response = await instance.get(
-      '/v1/identity/openidconnect/userinfo?schema=openid',
-    );
-    return response.data; // e.g., { email, name, etc. }
+    // Try without schema parameter first, let PayPal return default data
+    try {
+      const response = await instance.get('/v1/identity/openidconnect/userinfo');
+      console.log('✅ PayPal userinfo response:', response.data);
+      return response.data; // e.g., { email, name, user_id, etc. }
+    } catch (error) {
+      // If that fails, try with schema=openid
+      console.log('⚠️ First userinfo call failed, trying with schema=openid');
+      const response = await instance.get('/v1/identity/openidconnect/userinfo?schema=openid');
+      console.log('✅ PayPal userinfo response (with schema):', response.data);
+      return response.data;
+    }
   }
 
   async createOrder({ userId, price, currency = 'USD', state }) {

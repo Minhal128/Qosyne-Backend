@@ -1,0 +1,102 @@
+{
+  "info": {
+    "name": "Wallet Integration - Transfer",
+    "_postman_id": "3b1a8e2e-7f70-4f2f-9c5b-0c9f0c6f0a1b",
+    "description": "Postman collection for POST /api/wallet-integration/transactions/transfer",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Initiate Transfer",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"toWalletId\": \"paypal_receiver_1234\",\n  \"amount\": 5,\n  \"currency\": \"USD\",\n  \"description\": \"Sandbox test transfer\",\n  \"sourceWalletId\": 12,\n  \"targetWalletType\": \"paypal\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/wallet-integration/transactions/transfer",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "wallet-integration",
+            "transactions",
+            "transfer"
+          ]
+        }
+      },
+      "response": []
+    }
+    ,
+    {
+      "name": "Initiate Transfer (with client token)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"fromWalletId\": 12,\n  \"toWalletId\": \"okechikere.ekeada@gmail.com\",\n  \"amount\": 5,\n  \"currency\": \"USD\",\n  \"description\": \"Sandbox test transfer (client token)\",\n  \"targetWalletType\": \"venmo\",\n  \"sourceClientToken\": \"rsk_test_abcdef1234567890\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/wallet-integration/transactions/transfer",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "wallet-integration",
+            "transactions",
+            "transfer"
+          ]
+        },
+        "description": "Pass a client-supplied token in `sourceClientToken`. The server will only accept it if the authenticated user owns the `fromWalletId`. Prefer server-stored tokens in production."
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "<YOUR_JWT_TOKEN>",
+      "type": "string"
+    }
+  ]
+}

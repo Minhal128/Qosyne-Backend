@@ -94,43 +94,20 @@ async function getUserTransactionsSecure(userId, filters = {}) {
  */
 async function getUserWalletsSecure(userId) {
   const numericUserId = Number(userId);
-  
+
   if (!numericUserId || isNaN(numericUserId)) {
     throw new Error('Invalid userId provided');
   }
 
   console.log(`🔒 Secure wallet fetch for userId: ${numericUserId}`);
 
-  const wallets = await prisma.connectedWallets.findMany({
-    where: { 
-      userId: {
-        equals: numericUserId
-      }
-    },
-    orderBy: { createdAt: 'desc' },
-    select: {
-      id: true,
-      userId: true,
-      provider: true,
-      walletId: true,
-      balance: true,
-      currency: true,
-      isActive: true,
-      createdAt: true,
-      updatedAt: true
-    }
-  });
+  // Use walletService.getUserWallets which returns deduped wallets and includes safe fields
+  const walletService = require('../services/walletService');
+  const wallets = await walletService.getUserWallets(numericUserId);
 
-  // Double-check: Filter out any wallets that don't belong to this user
-  const userWallets = wallets.filter(w => w.userId === numericUserId);
-  
-  console.log(`🔒 Returning ${userWallets.length} wallets for userId ${numericUserId}`);
-  
-  if (wallets.length !== userWallets.length) {
-    console.error(`❌ SECURITY ALERT: Query returned ${wallets.length} wallets but only ${userWallets.length} belong to user ${numericUserId}`);
-  }
+  console.log(`🔒 Returning ${wallets.length} wallets for userId: ${numericUserId} (deduped)`);
 
-  return userWallets.map(w => ({
+  return wallets.map(w => ({
     id: w.id,
     provider: w.provider || '',
     walletId: w.walletId || '',

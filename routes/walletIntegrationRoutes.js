@@ -212,9 +212,35 @@ router.post(
   authMiddleware,
   tryCatch(walletIntegrationController.initSquareOAuth),
 );
+router.post(
+  "/square/oauth/init-fast",
+  authMiddleware,
+  tryCatch(walletIntegrationController.initSquareOAuthFast),
+);
 router.get(
   "/square/oauth/callback",
   tryCatch(walletIntegrationController.handleSquareOAuthCallback),
+);
+router.get(
+  "/square/oauth/callback-fast",
+  tryCatch(walletIntegrationController.handleSquareOAuthCallbackFast),
+);
+
+// Temporary public test endpoint to verify that Vercel/backend routing for the
+// Square callback is reachable. Hit this URL from a browser or curl and check
+// your backend logs for the '[Square Test] callback received' entry.
+router.get(
+  "/square/test-callback",
+  tryCatch(async (req, res) => {
+    console.info('[Square Test] callback received', {
+      time: new Date().toISOString(),
+      path: req.originalUrl,
+      query: req.query,
+      ip: req.ip || (req.connection && req.connection.remoteAddress),
+      host: req.get('host')
+    });
+    res.status(200).send('Square test callback reached');
+  }),
 );
 
 // Real Square Connection with User Credentials

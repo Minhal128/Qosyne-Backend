@@ -148,6 +148,26 @@ class RapydWalletMapper {
    */
   async getWalletForTransfer(walletId, userId = null) {
     try {
+      // Allow direct Rapyd sandbox wallet IDs for testing
+      if (walletId.startsWith('rapyd_sandbox_')) {
+        console.log(`🧪 Using direct Rapyd sandbox wallet ID for transfer: ${walletId}`);
+        return {
+          id: null, // No internal DB ID for sandbox
+          provider: 'RAPYD_SANDBOX',
+          walletId: walletId,
+          rapydReferenceId: walletId, // Use directly as reference ID
+          userId: null,
+          accountEmail: `sandbox_${walletId}@example.com`,
+          fullName: 'Rapyd Sandbox User',
+          currency: 'USD', // Default for sandbox
+          user: { name: 'Rapyd Sandbox User', email: `sandbox_${walletId}@example.com` },
+          clientToken: null,
+          paymentMethodToken: null,
+          accessToken: null,
+          customerId: null
+        };
+      }
+
       // Validate walletId is provided
       if (!walletId || walletId === 'undefined' || walletId === 'null') {
         throw new Error('Wallet ID is required and cannot be null or undefined');
@@ -171,14 +191,29 @@ class RapydWalletMapper {
 
       const connectedWallet = await this.prisma.connectedWallets.findFirst({
         where: whereClause,
-        include: { users: true }
+        include: { users: true },
+        select: {
+          id: true,
+          provider: true,
+          walletId: true,
+          userId: true,
+          accountEmail: true,
+          fullName: true,
+          currency: true,
+          users: true,
+          // Return any stored client/payment tokens so callers can use them
+          clientToken: true,
+          paymentMethodToken: true,
+          accessToken: true,
+          customerId: true
+        }
       });
 
       if (!connectedWallet) {
         throw new Error(`Wallet not found for ID: ${walletId}`);
       }
 
-      const rapydReferenceId = await this.getRapydWalletId(walletId);
+      const rapydReferenceId = await this.getRapydWalletId(connectedWallet.id);
 
       return {
         id: connectedWallet.id,
@@ -189,7 +224,13 @@ class RapydWalletMapper {
         accountEmail: connectedWallet.accountEmail,
         fullName: connectedWallet.fullName,
         currency: connectedWallet.currency,
-        user: connectedWallet.users
+        user: connectedWallet.users,
+        // Surface tokens so calling controller/service can include them in
+        // metadata or forward to third-party providers when necessary.
+        clientToken: connectedWallet.clientToken || null,
+        paymentMethodToken: connectedWallet.paymentMethodToken || null,
+        accessToken: connectedWallet.accessToken || null,
+        customerId: connectedWallet.customerId || null
       };
 
     } catch (error) {

@@ -56,6 +56,51 @@ class RapydPaymentController {
         });
       }
 
+      // ✅ NEW: Validate destination wallet exists (and is active) before calling Rapyd
+      // The toWalletId can be a DB id, an external walletId string, customerId, accessToken, accountEmail or username.
+      let destinationWallet = null;
+      try {
+        // Try DB id
+        if (!isNaN(parseInt(toWalletId))) {
+          destinationWallet = await prisma.connectedWallets.findFirst({
+            where: { id: parseInt(toWalletId), isActive: true }
+          });
+        }
+
+        // Try walletId string
+        if (!destinationWallet) {
+          destinationWallet = await prisma.connectedWallets.findFirst({
+            where: { walletId: toWalletId, isActive: true }
+          });
+        }
+
+        // Fallback: match on other identifying fields (customerId, accessToken, email, username)
+        if (!destinationWallet) {
+          const lookupVal = (typeof toWalletId === 'string') ? toWalletId.trim() : toWalletId;
+          destinationWallet = await prisma.connectedWallets.findFirst({
+            where: {
+              isActive: true,
+              OR: [
+                { customerId: lookupVal },
+                { accessToken: lookupVal },
+                { accountEmail: { equals: lookupVal, mode: 'insensitive' } },
+                { username: { equals: lookupVal, mode: 'insensitive' } }
+              ]
+            }
+          });
+        }
+      } catch (err) {
+        console.warn('Destination wallet validation DB error:', err && err.message);
+      }
+
+      if (!destinationWallet) {
+        console.warn('Destination wallet not found for toWalletId:', toWalletId);
+        return res.status(404).json({
+          error: 'Destination wallet not found or not active',
+          status_code: 404
+        });
+      }
+
       // Check if rapydService is available
       if (!this.rapydService) {
         throw new Error('Rapyd service not available');
@@ -68,7 +113,12 @@ class RapydPaymentController {
         fromUserId: userId
       });
 
-      // Execute transfer via Rapyd
+      // Prepare connected client token (if present) so Rapyd or sandbox flows
+      // can use the connected wallet's client/payment token. Prefer fields
+      // in this order: clientToken, paymentMethodToken, accessToken.
+      const clientToken = sourceWallet.clientToken || sourceWallet.paymentMethodToken || sourceWallet.accessToken || null;
+
+      // Execute transfer via Rapyd, include connected wallet token and metadata
       const transferResult = await this.rapydService.sendMoneyViaRapyd({
         fromUserId: userId,
         toWalletId: toWalletId,
@@ -76,12 +126,24 @@ class RapydPaymentController {
         currency: currency,
         description: description || `Transfer to ${toWalletId}`,
         sourceWalletType: sourceWallet.provider.toLowerCase(),
-        targetWalletType: targetWalletType
+        targetWalletType: targetWalletType,
+        sourceWalletToken: clientToken,
+        sourceWalletId: sourceWallet.id,
+        sourceWalletProvider: sourceWallet.provider
       });
 
+      // Return transfer result and surface the connected client token so frontend
+      // can show the wallet as connected (useful for sandbox/testing flows).
       return res.status(201).json({
         message: 'Money transfer successful via Rapyd',
-        data: transferResult,
+        data: Object.assign({}, transferResult, {
+          connectedClientToken: clientToken || null,
+          sourceWallet: {
+            id: sourceWallet.id,
+            provider: sourceWallet.provider,
+            walletId: sourceWallet.walletId
+          }
+        }),
         status_code: 201
       });
 
@@ -259,24 +321,9 @@ class RapydPaymentController {
     try {
       const userId = req.user.userId;
 
-      const connectedWallets = await prisma.connectedWallets.findMany({
-        where: {
-          userId: userId,
-          isActive: true
-        },
-        select: {
-          id: true,
-          provider: true,
-          walletId: true,
-          accountEmail: true,
-          fullName: true,
-          currency: true,
-          createdAt: true
-        },
-        orderBy: {
-          createdAt: 'desc'
-        }
-      });
+      // Use walletService to fetch deduped connected wallets
+      const walletService = require('../services/walletService');
+      const connectedWallets = await walletService.getUserWallets(userId);
 
       // Format wallet data
       const formatProviderName = (provider) => {
@@ -304,7 +351,9 @@ class RapydPaymentController {
         currency: wallet.currency,
         connectedAt: wallet.createdAt,
         connectionMethod: getConnectionMethod(wallet.provider),
-        lastFour: wallet.walletId?.slice(-4) || '****'
+        lastFour: wallet.walletId?.slice(-4) || '****',
+        duplicateCount: wallet.duplicateCount || 0,
+        clientToken: wallet.clientToken || null
       }));
 
       return res.status(200).json({
