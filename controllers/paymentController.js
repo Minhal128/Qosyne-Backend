@@ -109,8 +109,9 @@ exports.getPayPalAuthUrl = async (req, res) => {
   }
 
   // Build the scope and redirect URI with URL encoding
+  // Note: Use space-separated scopes for PayPal OpenID Connect
   const scope = encodeURIComponent(
-    'openid profile email https://uri.paypal.com/services/paypalattributes',
+    'openid profile email',
   );
 
   // Build the auth URL — force response_mode=query and URL-encode redirect URI so PayPal returns code via GET
@@ -296,38 +297,62 @@ exports.payPalCallback = async (req, res) => {
       return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', errorPayload, `${process.env.FRONTEND_URL}/paypal/callback?success=false&error=${encodeURIComponent('Token exchange failed')}&reason=${encodeURIComponent(reason)}`));
     }
 
-    const userAccessToken = tokenResponse.access_token || tokenResponse.id_token;
-    if (!userAccessToken) {
-      console.error('❌ No user access token received from PayPal token exchange', tokenResponse);
-      return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', { error: 'No access token returned' }, `${process.env.FRONTEND_URL}/paypal/callback?success=false&error=${encodeURIComponent('No access token returned')}`));
+    const userAccessToken = tokenResponse.access_token;
+    const idToken = tokenResponse.id_token;
+    
+    if (!userAccessToken && !idToken) {
+      console.error('❌ No tokens received from PayPal token exchange', tokenResponse);
+      return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', { error: 'No tokens returned' }, `${process.env.FRONTEND_URL}/paypal/callback?success=false&error=${encodeURIComponent('No tokens returned')}`));
     }
 
-    // Fetch user info from PayPal using the user access token
+    // Decode the id_token to get user info (it's a JWT with user data)
     let userInfo;
     try {
-      console.log('🔄 Fetching PayPal user info with token (first 20 chars):', userAccessToken?.substring(0, 20));
-      console.log('🔄 PayPal Base URL:', paymentGateway.paypalBaseUrl);
-      userInfo = await paymentGateway.getUserInfo(userAccessToken);
-      console.log('✅ PayPal user info fetched:', userInfo);
+      if (idToken) {
+        // Decode the JWT id_token (it contains user info)
+        console.log('🔓 Decoding PayPal id_token JWT...');
+        const base64Payload = idToken.split('.')[1];
+        const payload = JSON.parse(Buffer.from(base64Payload, 'base64').toString());
+        console.log('✅ Decoded id_token payload:', payload);
+        
+        // Extract user info from id_token
+        userInfo = {
+          user_id: payload.sub?.split('/').pop(), // Extract user ID from sub URL
+          payer_id: payload.payer_id,
+          email: payload.email || `${payload.payer_id}@paypal.user`, // Fallback email if not provided
+          name: payload.name || payload.given_name || 'PayPal User',
+          email_verified: payload.email_verified || false,
+        };
+        console.log('✅ Extracted user info from id_token:', userInfo);
+      } else {
+        // Fallback to userinfo endpoint if no id_token
+        console.log('⚠️ No id_token, falling back to userinfo endpoint');
+        userInfo = await paymentGateway.getUserInfo(userAccessToken);
+      }
     } catch (err) {
-      console.error('❌ Fetching PayPal user info failed:', err.response?.data || err.message || err);
-      console.error('❌ Error details:', JSON.stringify({
-        status: err.response?.status,
-        statusText: err.response?.statusText,
-        data: err.response?.data,
-        baseURL: paymentGateway.paypalBaseUrl,
-        endpoint: '/v1/identity/openidconnect/userinfo?schema=openid'
-      }));
+      console.error('❌ Failed to decode id_token or fetch user info:', err);
       return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', { 
-        error: 'Failed to fetch user info',
-        details: err.response?.data?.message || err.message,
-        status: err.response?.status 
-      }, `${process.env.FRONTEND_URL}/paypal/callback?success=false&error=${encodeURIComponent('Failed to fetch user info')}`));
+        error: 'Failed to get user info',
+        details: err.message
+      }, `${process.env.FRONTEND_URL}/paypal/callback?success=false&error=${encodeURIComponent('Failed to get user info')}`));
     }
 
     const userId = parseInt(state, 10);
+    // PayPal returns either payer_id or user_id depending on the schema
+    const paypalId = userInfo.payer_id || userInfo.user_id || userInfo.sub;
+    
+    if (!paypalId) {
+      console.error('❌ No PayPal ID found in user info:', userInfo);
+      return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', { 
+        error: 'No PayPal user ID found',
+        receivedData: Object.keys(userInfo)
+      }, `${process.env.FRONTEND_URL}/paypal/callback?success=false&error=${encodeURIComponent('No PayPal ID found')}`));
+    }
+    
+    console.log('✅ PayPal ID extracted:', paypalId);
+    
     const existingWallet = await prisma.connectedWallets.findUnique({
-      where: { walletId: userInfo.payer_id },
+      where: { walletId: paypalId },
     });
 
     if (existingWallet) {
@@ -345,8 +370,8 @@ exports.payPalCallback = async (req, res) => {
             updatedAt: new Date(),
           },
         });
-        const successPayload = { name: userInfo.name, email: userInfo.email, paypalId: userInfo.payer_id, wallet: updatedWallet };
-        return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_SUCCESS', successPayload, `${process.env.FRONTEND_URL}/paypal/callback?success=true&name=${encodeURIComponent(userInfo.name)}&email=${encodeURIComponent(userInfo.email)}&paypalId=${encodeURIComponent(userInfo.payer_id)}`));
+        const successPayload = { name: userInfo.name, email: userInfo.email, paypalId: paypalId, wallet: updatedWallet };
+        return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_SUCCESS', successPayload, `${process.env.FRONTEND_URL}/paypal/callback?success=true&name=${encodeURIComponent(userInfo.name)}&email=${encodeURIComponent(userInfo.email)}&paypalId=${encodeURIComponent(paypalId)}`));
       }
 
       // Otherwise the PayPal account is linked to a different user — keep existing error behavior
@@ -371,10 +396,10 @@ exports.payPalCallback = async (req, res) => {
         data: {
           userId: Number(state),
           provider: 'PAYPAL',
-          walletId: userInfo.payer_id,
-          accountEmail: userInfo.email,
-          fullName: userInfo.name,
-          username: userInfo.email,
+          walletId: paypalId,
+          accountEmail: userInfo.email || `${paypalId}@paypal.user`,
+          fullName: userInfo.name || 'PayPal User',
+          username: userInfo.email || paypalId,
           currency: currencyValue,
           accessToken: userAccessToken,
           refreshToken: tokenResponse.refresh_token || null,
@@ -384,8 +409,8 @@ exports.payPalCallback = async (req, res) => {
       });
 
       // For success case — include the created DB record in the popup payload so the frontend can update immediately
-      const successPayload = { name: userInfo.name, email: userInfo.email, paypalId: userInfo.payer_id, wallet: linkedWallet };
-      return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_SUCCESS', successPayload, `${process.env.FRONTEND_URL}/paypal/callback?success=true&name=${encodeURIComponent(userInfo.name)}&email=${encodeURIComponent(userInfo.email)}&paypalId=${encodeURIComponent(userInfo.payer_id)}`));
+      const successPayload = { name: userInfo.name, email: userInfo.email, paypalId: paypalId, wallet: linkedWallet };
+      return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_SUCCESS', successPayload, `${process.env.FRONTEND_URL}/paypal/callback?success=true&name=${encodeURIComponent(userInfo.name)}&email=${encodeURIComponent(userInfo.email)}&paypalId=${encodeURIComponent(paypalId)}`));
     } catch (dbErr) {
       console.error('❌ Failed to create connectedWallets record:', dbErr.stack || dbErr);
       return res.send(createPopupPostMessageResponse('PAYPAL_OAUTH_ERROR', { error: 'DB create failed', reason: dbErr.message || String(dbErr) }, `${process.env.FRONTEND_URL}/paypal/callback?success=false&error=${encodeURIComponent('DB create failed')}`));

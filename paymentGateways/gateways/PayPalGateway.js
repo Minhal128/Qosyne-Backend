@@ -131,17 +131,38 @@ class PayPalGateway {
    */
   async getUserInfo(userAccessToken) {
     const instance = this.paypalAxiosInstance(userAccessToken);
+    console.log('🔍 Fetching PayPal userinfo from:', this.paypalBaseUrl);
+    console.log('🔍 Using access token (first 25 chars):', userAccessToken?.substring(0, 25));
+    
     // Try without schema parameter first, let PayPal return default data
     try {
+      console.log('📡 Calling /v1/identity/openidconnect/userinfo (no schema)');
       const response = await instance.get('/v1/identity/openidconnect/userinfo');
       console.log('✅ PayPal userinfo response:', response.data);
       return response.data; // e.g., { email, name, user_id, etc. }
     } catch (error) {
+      console.error('❌ First userinfo call failed:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        message: error.message
+      });
+      
       // If that fails, try with schema=openid
-      console.log('⚠️ First userinfo call failed, trying with schema=openid');
-      const response = await instance.get('/v1/identity/openidconnect/userinfo?schema=openid');
-      console.log('✅ PayPal userinfo response (with schema):', response.data);
-      return response.data;
+      try {
+        console.log('📡 Retrying with schema=openid');
+        const response = await instance.get('/v1/identity/openidconnect/userinfo?schema=openid');
+        console.log('✅ PayPal userinfo response (with schema):', response.data);
+        return response.data;
+      } catch (retryError) {
+        console.error('❌ Second userinfo call also failed:', {
+          status: retryError.response?.status,
+          statusText: retryError.response?.statusText,
+          data: retryError.response?.data,
+          message: retryError.message
+        });
+        throw retryError; // Re-throw to let caller handle it
+      }
     }
   }
 
