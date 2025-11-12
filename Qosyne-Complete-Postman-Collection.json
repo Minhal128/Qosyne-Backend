@@ -1,0 +1,639 @@
+{
+  "info": {
+    "name": "Qosyne Complete API Collection",
+    "description": "Complete Postman collection for Qosyne wallet system - Login, Connect all wallets, Send payments",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://qosynebackend.vercel.app",
+      "type": "string"
+    },
+    {
+      "key": "jwt_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Authentication",
+      "item": [
+        {
+          "name": "Login User",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.collectionVariables.set('jwt_token', response.data.token);",
+                  "    pm.collectionVariables.set('user_id', response.data.user.id);",
+                  "    pm.test('Login successful', function () {",
+                  "        pm.expect(response.message).to.include('Login successful');",
+                  "    });",
+                  "} else {",
+                  "    pm.test('Login failed', function () {",
+                  "        pm.expect.fail('Login request failed');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test128@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "login"]
+            }
+          }
+        },
+        {
+          "name": "Register User (Optional)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Test User\",\n  \"email\": \"newuser@example.com\",\n  \"password\": \"password123\",\n  \"role\": \"USER\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/register",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "register"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Wallet Connections",
+      "item": [
+        {
+          "name": "Connect Square Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"squareEmail\": \"test128@example.com\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/square-invoice/connect",
+              "host": ["{{base_url}}"],
+              "path": ["api", "square-invoice", "connect"]
+            }
+          }
+        },
+        {
+          "name": "Connect PayPal Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"PAYPAL\",\n  \"authCode\": \"paypal_auth_code_here\",\n  \"accessToken\": \"paypal_access_token_here\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/wallet/connect",
+              "host": ["{{base_url}}"],
+              "path": ["api", "wallet", "connect"]
+            }
+          }
+        },
+        {
+          "name": "Connect Venmo Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"VENMO\",\n  \"authCode\": \"venmo_auth_code_here\",\n  \"accessToken\": \"venmo_access_token_here\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/wallet/connect",
+              "host": ["{{base_url}}"],
+              "path": ["api", "wallet", "connect"]
+            }
+          }
+        },
+        {
+          "name": "Connect Wise Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"WISE\",\n  \"authCode\": \"wise_auth_code_here\",\n  \"accessToken\": \"wise_access_token_here\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/wallet/connect",
+              "host": ["{{base_url}}"],
+              "path": ["api", "wallet", "connect"]
+            }
+          }
+        },
+        {
+          "name": "Connect Google Pay Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"GOOGLEPAY\",\n  \"authCode\": \"googlepay_auth_code_here\",\n  \"accessToken\": \"googlepay_access_token_here\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/wallet/connect",
+              "host": ["{{base_url}}"],
+              "path": ["api", "wallet", "connect"]
+            }
+          }
+        },
+        {
+          "name": "Connect Apple Pay Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"APPLEPAY\",\n  \"authCode\": \"applepay_auth_code_here\",\n  \"accessToken\": \"applepay_access_token_here\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/wallet/connect",
+              "host": ["{{base_url}}"],
+              "path": ["api", "wallet", "connect"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Get Connected Wallets",
+      "item": [
+        {
+          "name": "Get All Connected Wallets",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/wallet/wallets",
+              "host": ["{{base_url}}"],
+              "path": ["api", "wallet", "wallets"]
+            }
+          }
+        },
+        {
+          "name": "Get User Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/user/profile",
+              "host": ["{{base_url}}"],
+              "path": ["api", "user", "profile"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Send Payments",
+      "item": [
+        {
+          "name": "Send Square Invoice",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"recipientEmail\": \"receiver@example.com\",\n  \"amount\": 50.00,\n  \"currency\": \"USD\",\n  \"note\": \"Payment request for services\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/square-invoice/send",
+              "host": ["{{base_url}}"],
+              "path": ["api", "square-invoice", "send"]
+            }
+          }
+        },
+        {
+          "name": "Send PayPal Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"PAYPAL\",\n  \"amount\": 25.00,\n  \"currency\": \"USD\",\n  \"recipientEmail\": \"receiver@example.com\",\n  \"note\": \"PayPal payment\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payment/send",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payment", "send"]
+            }
+          }
+        },
+        {
+          "name": "Send Venmo Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"VENMO\",\n  \"amount\": 30.00,\n  \"currency\": \"USD\",\n  \"connectedWalletId\": 1,\n  \"useQosyneBalance\": true,\n  \"note\": \"Venmo payment\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payment/send",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payment", "send"]
+            }
+          }
+        },
+        {
+          "name": "Send Wise Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"WISE\",\n  \"amount\": 100.00,\n  \"currency\": \"USD\",\n  \"recipientName\": \"John Doe\",\n  \"recipientIban\": \"GB33BUKB20201555555555\",\n  \"note\": \"Wise transfer\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payment/send",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payment", "send"]
+            }
+          }
+        },
+        {
+          "name": "Send Google Pay Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"GOOGLEPAY\",\n  \"amount\": 75.00,\n  \"currency\": \"USD\",\n  \"recipientEmail\": \"receiver@example.com\",\n  \"note\": \"Google Pay payment\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payment/send",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payment", "send"]
+            }
+          }
+        },
+        {
+          "name": "Send Apple Pay Payment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"APPLEPAY\",\n  \"amount\": 60.00,\n  \"currency\": \"USD\",\n  \"recipientEmail\": \"receiver@example.com\",\n  \"note\": \"Apple Pay payment\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payment/send",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payment", "send"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Check Payment Status",
+      "item": [
+        {
+          "name": "Check Square Invoice Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/square-invoice/status/INVOICE_ID_HERE",
+              "host": ["{{base_url}}"],
+              "path": ["api", "square-invoice", "status", "INVOICE_ID_HERE"]
+            }
+          }
+        },
+        {
+          "name": "Get User Transactions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/user/transactions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "user", "transactions"]
+            }
+          }
+        },
+        {
+          "name": "Get Transaction by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/transactions/TRANSACTION_ID_HERE",
+              "host": ["{{base_url}}"],
+              "path": ["api", "transactions", "TRANSACTION_ID_HERE"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Cross-Platform Transfers",
+      "item": [
+        {
+          "name": "Venmo to Wise Transfer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"VENMO\",\n  \"amount\": 150.00,\n  \"currency\": \"USD\",\n  \"connectedWalletId\": 2,\n  \"note\": \"Cross-platform transfer from Venmo to Wise\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payment/send",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payment", "send"]
+            }
+          }
+        },
+        {
+          "name": "PayPal to Square Transfer",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"PAYPAL\",\n  \"amount\": 200.00,\n  \"currency\": \"USD\",\n  \"connectedWalletId\": 3,\n  \"note\": \"Cross-platform transfer from PayPal to Square\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/payment/send",
+              "host": ["{{base_url}}"],
+              "path": ["api", "payment", "send"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Wallet Management",
+      "item": [
+        {
+          "name": "Disconnect Wallet",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"PAYPAL\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/wallet/disconnect",
+              "host": ["{{base_url}}"],
+              "path": ["api", "wallet", "disconnect"]
+            }
+          }
+        },
+        {
+          "name": "Refresh Wallet Connection",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{jwt_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"VENMO\",\n  \"refreshToken\": \"new_refresh_token_here\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/wallet/refresh",
+              "host": ["{{base_url}}"],
+              "path": ["api", "wallet", "refresh"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Health & Status",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "health"]
+            }
+          }
+        },
+        {
+          "name": "Server Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/",
+              "host": ["{{base_url}}"],
+              "path": [""]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
