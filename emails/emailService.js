@@ -24,16 +24,20 @@ const transporter = process.env.SENDGRID_API_KEY
 
 const sendEmail = async (to, subject, htmlContent) => {
   try {
-    console.log('sending email to .....', to);
+    console.log('📧 Sending email to:', to);
+
+    const fromEmail = process.env.SENDGRID_API_KEY 
+      ? 'noreply@qosyne.com'  // Use SendGrid verified sender
+      : '5compropertiesllc@gmail.com';  // Fallback to Gmail
 
     const info = await transporter.sendMail({
-      from: '"Qosyne" <5compropertiesllc@gmail.com>',
+      from: `"Qosyne" <${fromEmail}>`,
       to,
       subject,
       html: htmlContent,
     });
 
-    console.log('✅ Email sent:', info.messageId);
+    console.log('✅ Email sent successfully:', info.messageId);
     return info;
   } catch (error) {
     console.error('❌ Email send error:', error.message);
