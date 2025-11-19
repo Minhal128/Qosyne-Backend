@@ -6,14 +6,35 @@ const templates = require('../emails/emailTemplates');
 const prisma = new PrismaClient();
 
 const sendOtp = async (userId, email, type) => {
-  // Check if the user already has 3 active OTPs
+  // OTP validity period: 10 minutes
+  const OTP_VALIDITY_MINUTES = 10;
+  const tenMinutesAgo = new Date(Date.now() - OTP_VALIDITY_MINUTES * 60 * 1000);
+
+  // Check if the user already has 3 active (non-expired) OTPs
   const activeOtpCount = await prisma.tokens.count({
-    where: { userId, type: 'OTP' },
+    where: { 
+      userId, 
+      type: 'OTP',
+      dateCreated: {
+        gte: tenMinutesAgo
+      }
+    },
   });
 
   if (activeOtpCount >= 3) {
-    throw new Error('You have reached the maximum limit of active OTPs.');
+    throw new Error('You have reached the maximum limit of active OTPs. Please try again in 10 minutes.');
   }
+
+  // Clean up expired OTPs (older than 10 minutes)
+  await prisma.tokens.deleteMany({
+    where: {
+      userId,
+      type: 'OTP',
+      dateCreated: {
+        lt: tenMinutesAgo
+      }
+    }
+  });
 
   // Generate a new OTP
   const otp = Math.floor(100000 + Math.random() * 900000);
