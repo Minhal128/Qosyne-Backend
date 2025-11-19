@@ -32,7 +32,13 @@ const sendOtp = async (userId, email, type) => {
   });
 
   // Send OTP via email
-  sendEmail(email, 'OTP Verification', templates.otpTemplate(otp));
+  try {
+    await sendEmail(email, 'OTP Verification', templates.otpTemplate(otp));
+    console.log(`✅ OTP email sent successfully to ${email}`);
+  } catch (error) {
+    console.error(`❌ Failed to send OTP email to ${email}:`, error);
+    throw new Error(`Failed to send OTP email: ${error.message}`);
+  }
 
   return otpToken;
 };

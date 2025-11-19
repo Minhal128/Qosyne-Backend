@@ -522,6 +522,10 @@ exports.mockConnectApplePay = async (req, res) => {
 
 // Transaction Management
 exports.initiateTransfer = async (req, res) => {
+  // Initialize Prisma at function level so it's available throughout
+  const { PrismaClient } = require('@prisma/client');
+  const prisma = new PrismaClient();
+  
   try {
     const userId = req.user.userId;
     const { 
@@ -551,9 +555,8 @@ exports.initiateTransfer = async (req, res) => {
     let extractedToProvider = toProvider;
 
     if (!fromProvider || !toProvider) {
-      const { PrismaClient } = require('@prisma/client');
-      const prisma = new PrismaClient();
-
+      // Prisma is now initialized at function level
+      
       // If caller provided only a client token (no fromWalletId), resolve the
       // source wallet by matching the token to a stored connected wallet that
       // belongs to the authenticated user.
@@ -722,13 +725,15 @@ exports.initiateTransfer = async (req, res) => {
     console.log(`🔄 Processing REAL Rapyd transfer: $${amount} from wallet ID ${fromWalletId} to wallet ID ${toWalletId}`);
     
     let rapydResult;
+    let fromWalletDetails;
+    let toWalletDetails;
     
     try {
       // Get dynamic Rapyd wallet reference IDs for both wallets
       console.log('📍 Mapping database wallet IDs to Rapyd reference IDs...');
       
-      const fromWalletDetails = await rapydWalletMapper.getWalletForTransfer(fromWalletId, userId);
-      const toWalletDetails = await rapydWalletMapper.getWalletForTransfer(toWalletId);
+      fromWalletDetails = await rapydWalletMapper.getWalletForTransfer(fromWalletId, userId);
+      toWalletDetails = await rapydWalletMapper.getWalletForTransfer(toWalletId);
       
       console.log(`🔄 From: ${fromWalletDetails.provider} wallet (${fromWalletDetails.rapydReferenceId})`);
       console.log(`🔄 To: ${toWalletDetails.provider} wallet (${toWalletDetails.rapydReferenceId})`);
@@ -747,6 +752,18 @@ exports.initiateTransfer = async (req, res) => {
       
     } catch (error) {
       console.error('⚠️ Rapyd transfer failed, using fallback with admin fee collection:', error.message);
+      
+      // Ensure wallet details are initialized if Rapyd lookup failed
+      if (!fromWalletDetails) {
+        fromWalletDetails = await prisma.connectedWallets.findUnique({
+          where: { id: parseInt(fromWalletId) }
+        });
+      }
+      if (!toWalletDetails) {
+        toWalletDetails = await prisma.connectedWallets.findUnique({
+          where: { id: parseInt(toWalletId) }
+        });
+      }
       
       // Fallback: Process with admin fee but simulate transfer
       // This ensures admin fee collection still works
@@ -805,8 +822,8 @@ exports.initiateTransfer = async (req, res) => {
     // diagnostics and sandbox flows only—do not leak to third-parties.
     // Prioritize a server-stored token, but allow an explicit client-supplied
     // `sourceClientToken` when the requester is the owner of the fromWallet.
-    const serverSourceToken = fromWalletDetails.clientToken || fromWalletDetails.paymentMethodToken || fromWalletDetails.accessToken || null;
-    const destinationClientToken = toWalletDetails.clientToken || toWalletDetails.paymentMethodToken || toWalletDetails.accessToken || null;
+    const serverSourceToken = fromWalletDetails?.clientToken || fromWalletDetails?.paymentMethodToken || fromWalletDetails?.accessToken || null;
+    const destinationClientToken = toWalletDetails?.clientToken || toWalletDetails?.paymentMethodToken || toWalletDetails?.accessToken || null;
 
     // Simple mask helper for logs
     const mask = (t) => {
@@ -867,16 +884,7 @@ exports.initiateTransfer = async (req, res) => {
           provider: 'QOSYNE',
           type: 'DEPOSIT',
           status: 'COMPLETED',
-          paymentId: `admin_fee_${transaction.id}`,
-          metadata: JSON.stringify({
-            originalTransactionId: transaction.id,
-            feeType: 'admin_transaction_fee',
-            collectedFrom: userId,
-            originalAmount: parseFloat(amount),
-            transferType: rapydResult.note ? 'fallback' : 'real_rapyd'
-          }),
-          createdAt: new Date(),
-          updatedAt: new Date()
+          paymentId: `admin_fee_${transaction.id}`
         }
       });
       

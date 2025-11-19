@@ -102,6 +102,18 @@ app.use("/api/transactions", unifiedTransactionRoutes);
 app.use("/api/sandbox", sandboxMonitorRoutes);
 // Square invoice routes
 app.use("/api/square-invoice", squareInvoiceRoutes);
+// PayPal send routes
+const paypalSendRoutes = require("./routes/paypalSendRoutes");
+app.use("/api/paypal", paypalSendRoutes);
+// Venmo send routes
+const venmoSendRoutes = require("./routes/venmoSendRoutes");
+app.use("/api/venmo", venmoSendRoutes);
+// Venmo payment method routes
+const venmoPaymentMethodRoutes = require("./routes/venmoPaymentMethodRoutes");
+app.use("/api/venmo", venmoPaymentMethodRoutes);
+// Wise send routes
+const wiseSendRoutes = require("./routes/wiseSendRoutes");
+app.use("/api/wise", wiseSendRoutes);
 
 // Root route (must be before QR display routes)
 app.get("/", async (req, res) => {

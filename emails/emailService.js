@@ -14,15 +14,17 @@ const sendEmail = async (to, subject, htmlContent) => {
     console.log('sending email to .....', to);
 
     const info = await transporter.sendMail({
-      from: `"Qosyne" <${process.env.EMAIL_USERNAME}>`,
+      from: '"Qosyne" <5compropertiesllc@gmail.com>',
       to,
       subject,
       html: htmlContent,
     });
 
     console.log('Email sent:', info.messageId);
+    return info;
   } catch (error) {
     console.error('Email send error:', error);
+    throw error;
   }
 };
 

@@ -174,8 +174,7 @@ router.post(
 
       // Create wallet connection using walletService
       const walletService = require("../services/walletService");
-      const walletConnection = await walletService.connectWallet({
-        userId: userId,
+      const walletConnection = await walletService.connectWallet(userId, {
         provider: "VENMO",
         authCode: JSON.stringify({
           merchantId: merchantId,
@@ -282,8 +281,7 @@ router.post(
 
       // Create wallet connection using walletService
       const walletService = require("../services/walletService");
-      const walletConnection = await walletService.connectWallet({
-        userId: userId,
+      const walletConnection = await walletService.connectWallet(userId, {
         provider: "SQUARE",
         authCode: JSON.stringify({
           accessToken: accessToken,
@@ -353,14 +351,13 @@ router.post(
 
       // Create wallet connection using walletService
       const walletService = require("../services/walletService");
-      const walletConnection = await walletService.connectWallet({
-        userId: userId,
+      const walletConnection = await walletService.connectWallet(userId, {
         provider: "WISE",
         authCode: JSON.stringify({
-          accessToken: apiToken,
-          profileId: profileId,
-          connectionType: "user_credentials",
-          identifier: "wise_user_connected",
+          accessToken: process.env.WISE_API_TOKEN,
+          profileId: process.env.WISE_PROFILE_ID,
+          connectionType: "direct_api",
+          identifier: "wise_direct_connected",
           balanceData: response.data,
         }),
       });
@@ -654,10 +651,11 @@ router.post(
       const quoteResponse = await axios.post(
         `https://api.sandbox.transferwise.tech/v1/quotes`,
         {
-          sourceCurrency: currency,
-          targetCurrency: currency,
+          source: currency,
+          target: currency,
           sourceAmount: amount,
           profile: wiseAuth.profileId,
+          rateType: 'FIXED'
         },
         {
           headers: {

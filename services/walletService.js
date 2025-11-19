@@ -276,11 +276,11 @@ class WalletService {
           const updatedWallet = await prisma.connectedWallets.update({
             where: { id: existingWalletForUser.id },
             data: {
+              customerId: connectionResult.customerId,
               accountEmail: connectionResult.accountEmail,
               fullName: connectionResult.fullName,
               username: connectionResult.username,
               accessToken: connectionResult.accessToken,
-              clientToken: connectionResult.clientToken || null,
               refreshToken: connectionResult.refreshToken,
               paymentMethodToken: connectionResult.paymentMethodToken,
               capabilities: JSON.stringify(
@@ -319,11 +319,11 @@ class WalletService {
           userId: numericUserId,
           provider,
           walletId: connectionResult.walletId,
+          customerId: connectionResult.customerId,
           accountEmail: connectionResult.accountEmail,
           fullName: connectionResult.fullName,
           username: connectionResult.username,
           accessToken: connectionResult.accessToken,
-          clientToken: connectionResult.clientToken || null,
           refreshToken: connectionResult.refreshToken,
           paymentMethodToken: connectionResult.paymentMethodToken,
           capabilities: JSON.stringify(this.providers[provider].capabilities),
@@ -1099,12 +1099,11 @@ class WalletService {
         accountEmail: customer.email,
         fullName: `${customer.firstName} ${customer.lastName}`,
         username: customerInfo?.username || customer.email,
-        accessToken: customer.id,
-        clientToken: clientToken,
+        accessToken: clientToken, // Store client token as access token for send API
         refreshToken: null,
         currency: "USD",
         balance: 0,
-        braintreeCustomerId: customer.id,
+        customerId: customer.id, // Store Braintree customer ID
         paymentMethodToken: paymentMethod?.token || null,
       };
     } catch (error) {

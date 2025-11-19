@@ -36,7 +36,7 @@ router.post(
 
     // Get Square access token (from user's wallet or env)
     let accessToken = req.body.accessToken || process.env.SQUARE_ACCESS_TOKEN;
-    let locationId = req.body.locationId || process.env.SQUARE_LOCATION_ID;
+    let locationId = req.body.locationId;
 
     // Try to get user's Square wallet
     const squareWallet = await prisma.connectedWallets.findFirst({
@@ -49,6 +49,7 @@ router.post(
 
     if (squareWallet && squareWallet.accessToken) {
       accessToken = squareWallet.accessToken;
+      // Note: Location ID will be fetched automatically from Square API if not provided
     }
 
     if (!accessToken) {
@@ -59,19 +60,35 @@ router.post(
     }
 
     try {
-      const client = getSquareClient(accessToken);
+      const axios = require('axios');
+      const baseURL = 'https://connect.squareupsandbox.com/v2';
+      const headers = {
+        'Authorization': `Bearer ${accessToken}`,
+        'Square-Version': '2024-11-20',
+        'Content-Type': 'application/json'
+      };
 
-      // Get location ID if not provided
+      // ALWAYS fetch the correct location ID from the merchant's account
+      // This ensures we use a location that the access token is authorized for
       if (!locationId) {
-        const { result: locationsResult } = await client.locations.list();
-        if (locationsResult.locations && locationsResult.locations.length > 0) {
-          locationId = locationsResult.locations[0].id;
+        console.log('🔍 Fetching authorized locations for this access token...');
+        const locationsResponse = await axios.get(`${baseURL}/locations`, { headers });
+        console.log('📍 Locations response:', JSON.stringify(locationsResponse.data, null, 2));
+        
+        if (locationsResponse.data.locations && locationsResponse.data.locations.length > 0) {
+          // Use the first active location
+          const activeLocation = locationsResponse.data.locations.find(loc => loc.status === 'ACTIVE') 
+            || locationsResponse.data.locations[0];
+          locationId = activeLocation.id;
+          console.log('✅ Using location ID:', locationId, '- Name:', activeLocation.name);
         } else {
           return res.status(400).json({
             success: false,
-            message: "No Square locations found",
+            message: "No Square locations found for this access token. Please ensure your Square account has at least one location.",
           });
         }
+      } else {
+        console.log('📍 Using provided location ID:', locationId);
       }
 
       const amountInCents = Math.round(amount * 100);
@@ -79,38 +96,38 @@ router.post(
 
       // Step 1: Create or get customer
       let customerId;
-      const { result: searchResult } = await client.customers.search({
+      const searchResponse = await axios.post(`${baseURL}/customers/search`, {
         query: {
           filter: {
-            emailAddress: {
+            email_address: {
               exact: recipientEmail,
             },
           },
         },
-      });
+      }, { headers });
 
-      if (searchResult.customers && searchResult.customers.length > 0) {
-        customerId = searchResult.customers[0].id;
+      if (searchResponse.data.customers && searchResponse.data.customers.length > 0) {
+        customerId = searchResponse.data.customers[0].id;
       } else {
-        const { result: customerResult } = await client.customers.create({
-          emailAddress: recipientEmail,
-          idempotencyKey: `customer_${idempotencyKey}`,
-        });
-        customerId = customerResult.customer.id;
+        const customerResponse = await axios.post(`${baseURL}/customers`, {
+          email_address: recipientEmail,
+          idempotency_key: `customer_${idempotencyKey}`,
+        }, { headers });
+        customerId = customerResponse.data.customer.id;
       }
 
       // Step 2: Create order
       const orderBody = {
-        idempotencyKey: `order_${idempotencyKey}`,
+        idempotency_key: `order_${idempotencyKey}`,
         order: {
-          locationId: locationId,
-          customerId: customerId,
-          lineItems: [
+          location_id: locationId,
+          customer_id: customerId,
+          line_items: [
             {
               name: note || "Payment Request",
               quantity: "1",
-              basePriceMoney: {
-                amount: BigInt(amountInCents),
+              base_price_money: {
+                amount: amountInCents,
                 currency,
               },
             },
@@ -118,53 +135,50 @@ router.post(
         },
       };
 
-      const { result: orderResult } = await client.orders.create(orderBody);
-      const orderId = orderResult.order.id;
+      const orderResponse = await axios.post(`${baseURL}/orders`, orderBody, { headers });
+      const orderId = orderResponse.data.order.id;
 
       // Step 3: Create invoice
       const invoiceBody = {
         invoice: {
-          locationId: locationId,
-          orderId: orderId,
-          primaryRecipient: {
-            customerId: customerId,
+          location_id: locationId,
+          order_id: orderId,
+          primary_recipient: {
+            customer_id: customerId,
           },
-          paymentRequests: [
+          payment_requests: [
             {
-              requestType: "BALANCE",
-              dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+              request_type: "BALANCE",
+              due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
                 .toISOString()
                 .split("T")[0],
-              automaticPaymentSource: "NONE",
+              automatic_payment_source: "NONE",
             },
           ],
-          deliveryMethod: "EMAIL",
-          invoiceNumber: `INV-${Date.now()}`,
+          delivery_method: "EMAIL",
+          invoice_number: `INV-${Date.now()}`,
           title: "Payment Request",
           description: note,
-          acceptedPaymentMethods: {
+          accepted_payment_methods: {
             card: true,
-            squareGiftCard: false,
-            bankAccount: false,
+            square_gift_card: false,
+            bank_account: false,
           },
         },
-        idempotencyKey,
+        idempotency_key: idempotencyKey,
       };
 
-      const { result: invoiceResult } = await client.invoices.create(invoiceBody);
-      const invoice = invoiceResult.invoice;
+      const invoiceResponse = await axios.post(`${baseURL}/invoices`, invoiceBody, { headers });
+      const invoice = invoiceResponse.data.invoice;
 
       // Step 4: Publish invoice
       const publishBody = {
         version: invoice.version,
-        idempotencyKey: `publish_${idempotencyKey}`,
+        idempotency_key: `publish_${idempotencyKey}`,
       };
 
-      const { result: publishResult } = await client.invoices.publish(
-        invoice.id,
-        publishBody
-      );
-      const publishedInvoice = publishResult.invoice;
+      const publishResponse = await axios.post(`${baseURL}/invoices/${invoice.id}/publish`, publishBody, { headers });
+      const publishedInvoice = publishResponse.data.invoice;
 
       // Save to database as transaction
       const transaction = await prisma.transactions.create({
@@ -205,14 +219,31 @@ router.post(
       });
     } catch (error) {
       console.error("❌ Square API error during send:", error);
-      const errorMessage =
-        error.errors && error.errors.length > 0
-          ? error.errors.map((e) => e.detail).join(", ")
-          : "Failed to send Square invoice. Please check your inputs and connection.";
-      return res.status(400).json({
+      console.error("❌ Error response:", error.response?.data);
+      console.error("❌ Error status:", error.response?.status);
+      console.error("❌ Error message:", error.message);
+      
+      let errorMessage = "Failed to send Square invoice. Please check your inputs and connection.";
+      let statusCode = 500;
+      
+      if (error.response?.data?.errors) {
+        errorMessage = error.response.data.errors.map(e => e.detail || e.message).join(", ");
+        statusCode = error.response.status || 400;
+      } else if (error.response?.status === 401) {
+        errorMessage = "Square access token is invalid or expired. Please update your credentials.";
+        statusCode = 401;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      return res.status(statusCode).json({
         success: false,
         message: errorMessage,
-        details: error.result,
+        details: {
+          status: error.response?.status,
+          data: error.response?.data,
+          message: error.message
+        },
       });
     }
   })
@@ -258,10 +289,16 @@ router.get(
       accessToken = squareWallet.accessToken;
     }
 
-    const client = getSquareClient(accessToken);
-    const { result } = await client.invoices.get(invoiceId);
+    const axios = require('axios');
+    const response = await axios.get(`https://connect.squareupsandbox.com/v2/invoices/${invoiceId}`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Square-Version': '2024-11-20',
+        'Content-Type': 'application/json'
+      }
+    });
 
-    const invoice = result.invoice;
+    const invoice = response.data.invoice;
     const invoiceStatus = invoice.status;
 
     // Update transaction status
@@ -351,6 +388,30 @@ router.post(
       const merchantId = response.data.merchant.id;
       console.log('✅ Merchant ID:', merchantId);
 
+      // Fetch the merchant's locations to get the correct location ID
+      console.log('🔍 Fetching merchant locations...');
+      const locationsResponse = await axios.get(
+        'https://connect.squareupsandbox.com/v2/locations',
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Square-Version': '2024-11-20',
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      let merchantLocationId = locationId; // Use provided locationId if available
+      let merchantLocationName = null;
+
+      if (locationsResponse.data.locations && locationsResponse.data.locations.length > 0) {
+        const activeLocation = locationsResponse.data.locations.find(loc => loc.status === 'ACTIVE') 
+          || locationsResponse.data.locations[0];
+        merchantLocationId = activeLocation.id;
+        merchantLocationName = activeLocation.name;
+        console.log('✅ Found location:', merchantLocationName, '- ID:', merchantLocationId);
+      }
+
       // Check if wallet already exists
       const existingWallet = await prisma.connectedWallets.findFirst({
         where: {
@@ -379,11 +440,11 @@ router.post(
             provider: "SQUARE",
             walletId: merchantId,
             accountEmail: squareEmail,
-            fullName: squareEmail,
             username: squareEmail,
             accessToken: token,
             currency: "USD",
             isActive: true,
+            updatedAt: new Date(),
           },
         });
       }
@@ -395,6 +456,8 @@ router.post(
           squareEmail,
           squareConnected: true,
           merchantId,
+          locationId: merchantLocationId,
+          locationName: merchantLocationName,
         },
       });
     } catch (error) {

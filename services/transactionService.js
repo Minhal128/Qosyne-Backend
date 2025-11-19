@@ -77,16 +77,7 @@ class TransactionService {
           currency,
           provider: fromWallet.provider,
           type: 'EXTERNAL_TRANSFER',
-          status: this.transactionStatuses.PENDING,
-          fees: fees.total,
-          estimatedCompletion: this.calculateEstimatedCompletion(fromWallet.provider, toWallet.provider),
-          metadata: JSON.stringify({
-            ...metadata,
-            toWalletId,
-            description,
-            requiresRapyd
-          }),
-          updatedAt: new Date()
+          status: this.transactionStatuses.PENDING
         }
       });
 
@@ -323,13 +314,9 @@ class TransactionService {
         currency: transaction.currency,
         provider: transaction.provider,
         type: transaction.type,
-        fees: transaction.fees,
         fromWallet: transaction.connectedWallets,
         toWallet: transaction.transactionRecipients,
-        metadata: transaction.metadata ? JSON.parse(transaction.metadata) : {},
-        createdAt: transaction.createdAt,
-        completedAt: transaction.completedAt,
-        estimatedCompletion: transaction.estimatedCompletion
+        createdAt: transaction.createdAt
       };
     } catch (error) {
       console.error('Error fetching transaction:', error);
@@ -377,10 +364,8 @@ class TransactionService {
           currency: t.currency,
           provider: t.provider,
           type: t.type,
-          fees: t.fees,
           fromWallet: t.connectedWallet,
-          createdAt: t.createdAt,
-          completedAt: t.completedAt
+          createdAt: t.createdAt
         })),
         page,
         limit,
