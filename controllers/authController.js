@@ -549,6 +549,14 @@ exports.googleLogin = async (req, res) => {
       });
 
       console.log(`New user registered via Google: ${verifiedEmail}`);
+    } else {
+      // User exists, update name if different
+      if (user.name !== name) {
+        user = await prisma.users.update({
+          where: { id: user.id },
+          data: { name, updatedAt: new Date() },
+        });
+      }
     }
     // Generate JWT token
     const token = jwt.sign({ userId: user.id, role: user.role }, SECRET_KEY, {
