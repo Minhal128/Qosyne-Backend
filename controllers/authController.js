@@ -62,7 +62,7 @@ exports.register = async (req, res) => {
         name,
         email,
         role: role || 'USER',
-        isVerified: false,
+        isVerified: true,
         isDeleted: false,
         updatedAt: new Date(),
       },
@@ -85,10 +85,8 @@ exports.register = async (req, res) => {
 
     // Note: Qosyne wallet creation removed - users will connect external wallets instead
 
-    await sendOtp(user.id, email, 'OTP');
-
     res.status(201).json({
-      message: 'User registered successfully. Please verify your email.',
+      message: 'User registered successfully. Your account is ready to use.',
       data: user,
       status_code: 201,
     });
@@ -544,7 +542,6 @@ exports.googleLogin = async (req, res) => {
           accountEmail: verifiedEmail,
           fullName: user.name,
           currency: 'USD',
-          updatedAt: new Date(),
         },
       });
 
