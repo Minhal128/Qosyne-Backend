@@ -459,97 +459,116 @@ exports.updatePassword = async (req, res) => {
  * If user doesn't exist, registers them first
  */
 exports.googleLogin = async (req, res) => {
-  // const { idToken, email, name } = req.body;
-  const { email, name } = req.body;
+  try {
+    // const { idToken, email, name } = req.body;
+    const { email, name } = req.body;
 
-  // Skip token verification for now
-  if (!email || !name) {
-    return res.status(400).json({
-      message: 'Email is required',
-      data: null,
-      status_code: 400,
+    // Skip token verification for now
+    if (!email || !name) {
+      return res.status(400).json({
+        message: 'Email and name are required',
+        data: null,
+        status_code: 400,
+      });
+    }
+
+    /*
+    // Token verification commented out for now
+    if (!idToken) {
+      return res.status(400).json({
+        message: 'Google token is required',
+        data: null,
+        status_code: 400,
+      });
+    }
+
+    // Verify the Google token
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
     });
-  }
 
-  /*
-  // Token verification commented out for now
-  if (!idToken) {
-    return res.status(400).json({
-      message: 'Google token is required',
-      data: null,
-      status_code: 400,
-    });
-  }
+    const payload = ticket.getPayload();
 
-  // Verify the Google token
-  const ticket = await googleClient.verifyIdToken({
-    idToken,
-    audience: process.env.GOOGLE_CLIENT_ID,
-  });
+    // Ensure the email in the token matches the provided email (if any)
+    const verifiedEmail = payload.email;
+    if (email && email !== verifiedEmail) {
+      return res.status(400).json({
+        message: 'Email mismatch between token and request',
+        data: null,
+        status_code: 400,
+      });
+    }
+    */
 
-  const payload = ticket.getPayload();
+    // Using email directly from request body
+    const verifiedEmail = email;
 
-  // Ensure the email in the token matches the provided email (if any)
-  const verifiedEmail = payload.email;
-  if (email && email !== verifiedEmail) {
-    return res.status(400).json({
-      message: 'Email mismatch between token and request',
-      data: null,
-      status_code: 400,
-    });
-  }
-  */
-
-  // Using email directly from request body
-  const verifiedEmail = email;
-
-  // Check if user already exists
-  let user = await prisma.users.findUnique({
-    where: {
-      email_isDeleted: {
-        email: verifiedEmail,
-        isDeleted: false,
-      },
-    },
-  });
-
-  if (!user) {
-    // User doesn't exist, create a new account
-    user = await prisma.users.create({
-      data: {
-        name,
-        email: verifiedEmail,
-        role: 'USER',
-        isVerified: true, // Google has already verified the email
-        isDeleted: false,
-        updatedAt: new Date(),
+    // Check if user already exists
+    let user = await prisma.users.findUnique({
+      where: {
+        email_isDeleted: {
+          email: verifiedEmail,
+          isDeleted: false,
+        },
       },
     });
 
-    // Insert into connectedWallets for Qosyne
-    await prisma.connectedWallets.create({
-      data: {
-        userId: user.id,
-        provider: 'QOSYNE',
-        walletId: `qosyne_${user.id}`,
-        accountEmail: verifiedEmail,
-        fullName: user.name,
-        currency: 'USD',
-      },
+    if (!user) {
+      // User doesn't exist, create a new account
+      user = await prisma.users.create({
+        data: {
+          name,
+          email: verifiedEmail,
+          role: 'USER',
+          isVerified: true, // Google has already verified the email
+          isDeleted: false,
+          updatedAt: new Date(),
+        },
+      });
+
+      // ✅ Create wallet for the new user
+      await prisma.wallet.create({
+        data: {
+          userId: user.id,
+          balance: 0.0,
+        },
+      });
+
+      // Insert into connectedWallets for Qosyne
+      await prisma.connectedWallets.create({
+        data: {
+          userId: user.id,
+          provider: 'QOSYNE',
+          walletId: `qosyne_${user.id}`,
+          accountEmail: verifiedEmail,
+          fullName: user.name,
+          currency: 'USD',
+          updatedAt: new Date(),
+        },
+      });
+
+      console.log(`New user registered via Google: ${verifiedEmail}`);
+    }
+    // Generate JWT token
+    const token = jwt.sign({ userId: user.id, role: user.role }, SECRET_KEY, {
+      expiresIn: '7d',
     });
 
-    console.log(`New user registered via Google: ${verifiedEmail}`);
+    return res.status(201).json({
+      message: 'Google authentication successful',
+      data: { token, user },
+      status_code: 201,
+    });
+  } catch (error) {
+    console.error('Google login error:', error);
+    return res.status(500).json({
+      message: 'Internal server error',
+      data: null,
+      status_code: 500,
+      error: error.message,
+    });
   }
-  // Generate JWT token
-  const token = jwt.sign({ userId: user.id, role: user.role }, SECRET_KEY, {
-    expiresIn: '7d',
-  });
-
-  return res.status(201).json({
-    message: 'Google authentication successful',
-    data: { token, user },
-    status_code: 201,
-  });
 };
 
 // ✅ Request Change Email - Send OTP to New Email

@@ -1,34 +1,21 @@
 const nodemailer = require('nodemailer');
 
-// Use SendGrid for production (more reliable on cloud platforms)
-// Falls back to Gmail if SendGrid is not configured
-const transporter = process.env.SENDGRID_API_KEY
-  ? nodemailer.createTransport({
-      host: 'smtp.sendgrid.net',
-      port: 587,
-      secure: false,
-      auth: {
-        user: 'apikey',
-        pass: process.env.SENDGRID_API_KEY,
-      },
-    })
-  : nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false,
-      auth: {
-        user: '5compropertiesllc@gmail.com',
-        pass: process.env.EMAIL_PASSWORD,
-      },
-    });
+// SMTP Configuration from environment variables
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: parseInt(process.env.SMTP_PORT) || 587,
+  secure: false, // Use TLS (not SSL)
+  auth: {
+    user: process.env.SMTP_USER || '5compropertiesllc@gmail.com',
+    pass: process.env.SMTP_PASSWORD || process.env.EMAIL_PASSWORD,
+  },
+});
 
 const sendEmail = async (to, subject, htmlContent) => {
   try {
     console.log('📧 Sending email to:', to);
 
-    const fromEmail = process.env.SENDGRID_API_KEY 
-      ? 'noreply@qosyne.com'  // Use SendGrid verified sender
-      : '5compropertiesllc@gmail.com';  // Fallback to Gmail
+    const fromEmail = process.env.EMAIL_FROM || process.env.SMTP_USER || '5compropertiesllc@gmail.com';
 
     const info = await transporter.sendMail({
       from: `"Qosyne" <${fromEmail}>`,

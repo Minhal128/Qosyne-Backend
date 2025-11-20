@@ -1,3 +1,4 @@
+require('dotenv').config();
 const sendEmail = require('./emails/emailService');
 const templates = require('./emails/emailTemplates');
 
