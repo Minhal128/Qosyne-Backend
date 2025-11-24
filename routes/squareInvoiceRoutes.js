@@ -412,41 +412,83 @@ router.post(
         console.log('✅ Found location:', merchantLocationName, '- ID:', merchantLocationId);
       }
 
-      // Check if wallet already exists
-      const existingWallet = await prisma.connectedWallets.findFirst({
-        where: {
-          userId: parseInt(userId),
-          provider: "SQUARE",
-          isActive: true,
-        },
+      // Safeguard against walletId uniqueness collisions.
+      // Prisma has a unique constraint on connectedWallets.walletId, so if the
+      // merchantId (walletId) already exists we need to handle it explicitly.
+      const walletById = await prisma.connectedWallets.findUnique({
+        where: { walletId: merchantId },
       });
 
-      if (existingWallet) {
-        // Update existing
-        await prisma.connectedWallets.update({
-          where: { id: existingWallet.id },
-          data: {
-            accountEmail: squareEmail,
-            accessToken: token,
-            walletId: merchantId,
-            updatedAt: new Date(),
-          },
+      // If the wallet is already connected and belongs to a different user,
+      // refuse the connect request to avoid accidentally reassigning it.
+      if (walletById && walletById.userId !== parseInt(userId)) {
+        console.warn("⚠️ Attempt to connect Square account that is already registered by another user", {
+          merchantId,
+          existingUserId: walletById.userId,
+          currentUserId: userId,
         });
-      } else {
-        // Create new
-        await prisma.connectedWallets.create({
+
+        return res.status(409).json({
+          success: false,
+          message: "This Square account is already connected to another user in our system. If you believe this is an error, please contact support.",
+          data: { merchantId },
+        });
+      }
+
+      // If a wallet exists for *this* user, prefer updating it. If an existing
+      // wallet with this merchantId belongs to the same user, update it as well.
+      if (walletById && walletById.userId === parseInt(userId)) {
+        await prisma.connectedWallets.update({
+          where: { id: walletById.id },
           data: {
-            userId: parseInt(userId),
             provider: "SQUARE",
-            walletId: merchantId,
             accountEmail: squareEmail,
-            username: squareEmail,
             accessToken: token,
+            username: squareEmail,
+            walletId: merchantId,
             currency: "USD",
             isActive: true,
             updatedAt: new Date(),
           },
         });
+
+      } else {
+        // If we didn't find any wallet by walletId that conflicts, try to find
+        // an existing active SQUARE wallet for this user and update it.
+        const existingWallet = await prisma.connectedWallets.findFirst({
+          where: {
+            userId: parseInt(userId),
+            provider: "SQUARE",
+            isActive: true,
+          },
+        });
+
+        if (existingWallet) {
+          await prisma.connectedWallets.update({
+            where: { id: existingWallet.id },
+            data: {
+              accountEmail: squareEmail,
+              accessToken: token,
+              walletId: merchantId,
+              updatedAt: new Date(),
+            },
+          });
+        } else {
+          // No conflicts found — safe to create a new connected wallet
+          await prisma.connectedWallets.create({
+            data: {
+              userId: parseInt(userId),
+              provider: "SQUARE",
+              walletId: merchantId,
+              accountEmail: squareEmail,
+              username: squareEmail,
+              accessToken: token,
+              currency: "USD",
+              isActive: true,
+              updatedAt: new Date(),
+            },
+          });
+        }
       }
 
       res.json({
